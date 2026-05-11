@@ -1,5 +1,5 @@
 // ============================================
-// MYSTIC SYSTEM — mystic-login.js（Stripe連携版）
+// とむMYSTIC — mystic-login.js（Stripe連携版）
 // ============================================
 
 const WORKER_URL = "https://mystic-system-worker.inverted-triangle-leef.workers.dev";
@@ -107,7 +107,7 @@ function renderLoginModal() {
     <div class="mystic-modal-overlay">
       <div class="mystic-modal-box">
         <div class="mystic-modal-star">✦</div>
-        <h2 class="mystic-modal-title">MYSTIC SYSTEM</h2>
+        <h2 class="mystic-modal-title">とむMYSTIC</h2>
         <p class="mystic-modal-subtitle">星の導きへ、メールアドレスで入場</p>
         <input
           id="mystic-email-input"

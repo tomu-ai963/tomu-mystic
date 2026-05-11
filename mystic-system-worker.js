@@ -1,5 +1,5 @@
 // ============================================
-// MYSTIC SYSTEM — Worker.js (Full 30 endpoints)
+// とむMYSTIC — Worker.js (Full 30 endpoints)
 // ES Module format for Cloudflare Workers
 // ============================================
 
@@ -19,7 +19,7 @@ export default {
     const path = url.pathname;
 
     if (path === "/") {
-      return jsonResponse({ status: "MYSTIC SYSTEM Worker OK", endpoints: 30 });
+      return jsonResponse({ status: "とむMYSTIC Worker OK", endpoints: 30 });
     }
 
     try {

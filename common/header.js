@@ -23,7 +23,7 @@
   header.id = 'mystic-back-header';
   var link = document.createElement('a');
   link.href = 'https://tomu-ai963.github.io/mystic-system/';
-  link.textContent = '← MYSTIC SYSTEM';
+  link.textContent = '← とむMYSTIC';
   header.appendChild(link);
 
   document.addEventListener('DOMContentLoaded', function () {
