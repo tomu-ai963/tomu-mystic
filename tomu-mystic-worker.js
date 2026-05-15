@@ -6,7 +6,7 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-User-Id",
+  "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-MCP-Token, Authorization",
 };
 
 export default {
@@ -127,6 +127,8 @@ export default {
       if (path === "/subscription/register") return handleSubscriptionRegister(request, env);
       if (path === "/stripe/checkout")       return handleStripeCheckout(request, env);
       if (path === "/webhook")               return handleStripeWebhook(request, env);
+
+      if (path === "/mcp")                   return handleMcp(request, env);
 
       return jsonResponse({ error: "Not Found" }, 404);
 
@@ -862,4 +864,216 @@ function jsonResponse(data, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
+}
+
+// ============================================
+// MCP サーバー実装 (POST /mcp)
+// JSON-RPC 2.0 ベース、@modelcontextprotocol/sdk 不使用
+// ============================================
+
+const MCP_TOOLS = [
+  {
+    name: "star_reading",
+    description: "今日の星読み。生年月日から太陽星座を計算し、今日の宇宙エネルギーと星のメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "tarot_draw",
+    description: "タロット一枚引き。ランダムにカードを引き、今この瞬間のメッセージを届けます。引数は不要です。",
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "numerology",
+    description: "数秘術診断。生年月日からライフパスナンバーを計算し、魂の使命と今世のテーマを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+        name:      { type: "string", description: "名前（任意）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "lucky_color",
+    description: "今日の開運カラー。生年月日と対象日から最もラッキーなカラーを特定し、開運アドバイスを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate:   { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+        target_date: { type: "string", description: "対象日（YYYY-MM-DD形式）。省略時は今日。" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "oracle_message",
+    description: "宇宙メッセージ。今の気持ちや状況・悩みを伝えると、宇宙からの神秘的なメッセージが届きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        feeling: { type: "string", description: "今の気持ちや状況・悩み" },
+      },
+      required: ["feeling"],
+    },
+  },
+];
+
+const TAROT_CARDS = [
+  "愚者", "魔術師", "女教皇", "女帝", "皇帝", "教皇", "恋人たち",
+  "戦車", "力", "隠者", "運命の輪", "正義", "吊るされた男", "死神",
+  "節制", "悪魔", "塔", "星", "月", "太陽", "審判", "世界",
+];
+
+async function handleMcp(request, env) {
+  // MCP_TOKEN が設定されている場合のみ認証チェック
+  if (env.MCP_TOKEN) {
+    const token =
+      request.headers.get("X-MCP-Token") ??
+      (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    if (token !== env.MCP_TOKEN) {
+      return mcpError(null, -32001, "Unauthorized");
+    }
+  }
+
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return mcpError(null, -32700, "Parse error");
+  }
+
+  const { jsonrpc, id = null, method, params } = body;
+
+  if (jsonrpc !== "2.0") {
+    return mcpError(id, -32600, "Invalid Request: jsonrpc must be '2.0'");
+  }
+
+  // 通知メッセージ（レスポンス不要）
+  if (method === "notifications/initialized") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  switch (method) {
+    case "initialize":
+      return mcpResponse(id, {
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "tomu-mystic", version: "1.0.0" },
+      });
+
+    case "tools/list":
+      return mcpResponse(id, { tools: MCP_TOOLS });
+
+    case "tools/call":
+      return handleMcpToolCall(id, params, env);
+
+    default:
+      return mcpError(id, -32601, `Method not found: ${method}`);
+  }
+}
+
+async function handleMcpToolCall(id, params, env) {
+  const { name, arguments: args = {} } = params || {};
+
+  try {
+    let text;
+
+    switch (name) {
+      case "star_reading": {
+        const { birthdate } = args;
+        if (!birthdate) return mcpError(id, -32602, "birthdate は必須です");
+        const sign = getSunSign(birthdate);
+        text = await callClaude(
+          env,
+          `あなたは神秘的な星読み師です。以下の確定済みデータを元に、今日の星の配置に基づいたメッセージを詩的で神秘的な文体で日本語で届けてください。星座の判定は変えないでください。200〜300文字程度で。`,
+          `生年月日：${birthdate}\n太陽星座：${sign}`
+        );
+        text = `【太陽星座：${sign}】\n\n${text}`;
+        break;
+      }
+
+      case "tarot_draw": {
+        const card = TAROT_CARDS[Math.floor(Math.random() * TAROT_CARDS.length)];
+        text = await callClaude(
+          env,
+          `あなたは神秘的なタロット占い師です。引いたカードのエネルギーと意味を、今この瞬間のユーザーへのメッセージとして神秘的な文体で日本語で届けてください。300文字程度で。`,
+          `引いたカード：${card}`
+        );
+        text = `【引いたカード：${card}】\n\n${text}`;
+        break;
+      }
+
+      case "numerology": {
+        const { birthdate, name: userName = "（名前未入力）" } = args;
+        if (!birthdate) return mcpError(id, -32602, "birthdate は必須です");
+        const lpn = getLifePathNumber(birthdate);
+        text = await callClaude(
+          env,
+          `あなたは数秘術の達人です。以下の確定済みライフパスナンバーを元に、魂の使命と今世のテーマを神秘的な文体で日本語で伝えてください。ライフパスナンバーの数値は変えないでください。300文字程度で。`,
+          `名前：${userName}\n生年月日：${birthdate}\nライフパスナンバー：${lpn}`
+        );
+        text = `【ライフパスナンバー：${lpn}】\n\n${text}`;
+        break;
+      }
+
+      case "lucky_color": {
+        const { birthdate, target_date } = args;
+        if (!birthdate) return mcpError(id, -32602, "birthdate は必須です");
+        const targetDate = target_date || new Date().toISOString().split("T")[0];
+        const ki   = getNineStarKi(birthdate);
+        const sign = getSunSign(birthdate);
+        const lpn  = getLifePathNumber(birthdate);
+        text = await callClaude(
+          env,
+          `あなたは色彩運気の占い師です。以下の確定済みデータを元に、今日最も開運をもたらすラッキーカラーを特定し、その色のエネルギー・使い方・今日のアドバイスを神秘的な文体で日本語で伝えてください。本命星・星座・数字は変えないでください。300文字程度で。`,
+          `生年月日：${birthdate}\n対象日：${targetDate}\n本命星：${ki.name}\n太陽星座：${sign}\nライフパスナンバー：${lpn}`
+        );
+        text = `【${targetDate}の開運カラー診断】\n\n${text}`;
+        break;
+      }
+
+      case "oracle_message": {
+        const { feeling } = args;
+        if (!feeling) return mcpError(id, -32602, "feeling は必須です");
+        text = await callClaude(
+          env,
+          `あなたは宇宙のチャネラーです。ユーザーの今の気持ちや状況を受け取り、宇宙からの神秘的なメッセージを詩的な日本語で届けてください。150〜200文字程度で。`,
+          `今の気持ち・状況：${feeling}`
+        );
+        break;
+      }
+
+      default:
+        return mcpError(id, -32602, `Unknown tool: ${name}`);
+    }
+
+    return mcpResponse(id, {
+      content: [{ type: "text", text }],
+    });
+  } catch (err) {
+    return mcpError(id, -32603, `Tool execution error: ${err.message}`);
+  }
+}
+
+function mcpResponse(id, result) {
+  return new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), {
+    headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  });
+}
+
+function mcpError(id, code, message) {
+  return new Response(
+    JSON.stringify({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }),
+    { headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+  );
 }
