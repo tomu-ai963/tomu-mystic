@@ -867,6 +867,76 @@ function jsonResponse(data, status = 200) {
 }
 
 // ============================================
+// MCP 用追加定数・ユーティリティ
+// ============================================
+
+const RUNE_NAMES = [
+  "フェフ（富と繁栄）","ウルズ（力と野性）","スリサズ（保護と試練）",
+  "アンサズ（知恵と啓示）","ライゾ（旅と変化）","ケナズ（創造と洞察）",
+  "ゲボ（贈り物と交換）","ウィンジョ（喜びと調和）","ハガラズ（破壊と変革）",
+  "ナウシズ（必要性と抵抗）","イサズ（静止と内省）","イェラ（収穫と循環）",
+  "イワズ（永続と保護）","ペルズ（秘密と神秘）","アルギズ（守護と高次意識）",
+  "ソウィロ（太陽と勝利）","ティワズ（正義と犠牲）","ベルカノ（成長と誕生）",
+  "エワズ（変化と忠誠）","マンナズ（人類と自己）","ラグズ（水と直感）",
+  "イングワズ（豊穣と完成）","ダガズ（夜明けと変容）","オシラ（家と遺産）",
+];
+
+const I_CHING_HEXAGRAMS = [
+  "乾（けん）- 天の創造力","坤（こん）- 大地の受容","屯（ちゅん）- 草創の困難",
+  "蒙（もう）- 若さと教育","需（じゅ）- 待つこと","訟（しょう）- 争い",
+  "師（し）- 軍と大衆","比（ひ）- 結束","小畜（しょうちく）- 小さな蓄積",
+  "履（り）- 行為","泰（たい）- 平和","否（ひ）- 停滞",
+  "同人（どうじん）- 人との結合","大有（たいゆう）- 大きな豊かさ","謙（けん）- 謙虚",
+  "豫（よ）- 喜び","随（ずい）- 従う","蟲（こ）- 腐敗の修正",
+  "臨（りん）- 接近","観（かん）- 観察","噬嗑（ぜいこう）- 咬み砕く",
+  "賁（ひ）- 飾り","剥（はく）- 剥落","復（ふく）- 回帰",
+  "無妄（むぼう）- 無邪気","大畜（たいちく）- 大きな蓄積","頤（い）- 養育",
+  "大過（たいか）- 大きな過ぎること","坎（かん）- 深淵","離（り）- 火と光",
+  "咸（かん）- 感応","恒（こう）- 永続","遯（とん）- 退却",
+  "大壮（たいそう）- 大きな力","晋（しん）- 前進","明夷（めいい）- 光の傷",
+  "家人（かじん）- 家族","睽（けい）- 対立","蹇（けん）- 障害",
+  "解（かい）- 解放","損（そん）- 減少","益（えき）- 増加",
+  "夬（かい）- 決断","姤（こう）- 出会い","萃（すい）- 集合",
+  "升（しょう）- 上昇","困（こん）- 困窮","井（せい）- 井戸",
+  "革（かく）- 革命","鼎（てい）- 鍋","震（しん）- 雷",
+  "艮（ごん）- 山","漸（ぜん）- 徐々に","帰妹（きまい）- 花嫁",
+  "豊（ほう）- 豊かさ","旅（りょ）- 旅人","巽（そん）- 風",
+  "兌（だ）- 喜び","渙（かん）- 分散","節（せつ）- 節制",
+  "中孚（ちゅうふ）- 内なる真実","小過（しょうか）- 小さな過ぎること","既済（きせい）- 完成",
+  "未済（みせい）- 未完成",
+];
+
+const MERCURY_RETROGRADE_PERIODS = [
+  ["2024-08-05","2024-08-28"],
+  ["2024-11-25","2024-12-15"],
+  ["2025-01-25","2025-02-15"],
+  ["2025-05-29","2025-06-22"],
+  ["2025-09-21","2025-10-15"],
+  ["2026-01-25","2026-02-14"],
+  ["2026-05-16","2026-06-09"],
+  ["2026-09-11","2026-10-04"],
+];
+
+function checkMercuryRetrograde(dateStr) {
+  const d = new Date(dateStr);
+  for (const [start, end] of MERCURY_RETROGRADE_PERIODS) {
+    if (d >= new Date(start) && d <= new Date(end)) {
+      return { retrograde: true, period: `${start} 〜 ${end}` };
+    }
+  }
+  return { retrograde: false };
+}
+
+function calcBiorhythm(birthdate, targetDate) {
+  const days = Math.floor((new Date(targetDate) - new Date(birthdate)) / 86400000);
+  return {
+    physical:     Math.round(Math.sin(2 * Math.PI * days / 23) * 100),
+    emotional:    Math.round(Math.sin(2 * Math.PI * days / 28) * 100),
+    intellectual: Math.round(Math.sin(2 * Math.PI * days / 33) * 100),
+  };
+}
+
+// ============================================
 // MCP サーバー実装 (POST /mcp)
 // JSON-RPC 2.0 ベース、@modelcontextprotocol/sdk 不使用
 // ============================================
@@ -926,6 +996,288 @@ const MCP_TOOLS = [
       required: ["feeling"],
     },
   },
+  {
+    name: "past_life",
+    description: "前世診断。自己描写や好み・傾向を入力すると、AIが前世の物語を神秘的に語ります。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "あなたの特徴・好み・傾向・直感的に惹かれるものなど（自由記述）" },
+      },
+      required: ["description"],
+    },
+  },
+  {
+    name: "guardian_star",
+    description: "守護星特定。生年月日から守護星を特定し、今週の指針と開運アドバイスを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "dream_reading",
+    description: "夢解読AI。夢の内容を入力すると、スピリチュアルな視点から象徴と潜在意識のメッセージを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dream: { type: "string", description: "見た夢の内容を詳しく記述してください" },
+      },
+      required: ["dream"],
+    },
+  },
+  {
+    name: "compatibility",
+    description: "縁結び相性占い。2人の生年月日から魂レベルの相性・絆の意味・共に成長するための鍵を読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate1: { type: "string", description: "1人目の生年月日（YYYY-MM-DD形式）" },
+        birthdate2: { type: "string", description: "2人目の生年月日（YYYY-MM-DD形式）" },
+      },
+      required: ["birthdate1", "birthdate2"],
+    },
+  },
+  {
+    name: "soul_mission",
+    description: "魂の使命診断。今世のテーマ・使命・ライフギフトをAIが読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "自分が大切にしていること・繰り返すパターン・情熱を感じることなど（自由記述）" },
+        birthdate:   { type: "string", description: "生年月日（YYYY-MM-DD形式、任意）" },
+      },
+      required: ["description"],
+    },
+  },
+  {
+    name: "moon_journal",
+    description: "月相ジャーナル。今日の月相に合わせた内省プロンプトと月からのメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date:       { type: "string", description: "対象日（YYYY-MM-DD形式、省略時は今日）" },
+        moon_phase: { type: "string", description: "月相名（例：新月、三日月、上弦の月、満月、下弦の月）省略可" },
+      },
+    },
+  },
+  {
+    name: "aura_reading",
+    description: "オーラ診断。今の状態・気分・エネルギーを入力すると、現在のオーラカラーを特定し読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        current_state: { type: "string", description: "今の気分・体の感覚・心の状態・最近の出来事など（自由記述）" },
+      },
+      required: ["current_state"],
+    },
+  },
+  {
+    name: "chakra_check",
+    description: "チャクラバランス診断。気になる体の部位や感情・悩みを入力すると、滞っているチャクラを特定し解放メッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        concern: { type: "string", description: "気になる体の症状・感情・悩み・テーマ（自由記述）" },
+      },
+      required: ["concern"],
+    },
+  },
+  {
+    name: "power_stone",
+    description: "パワーストーン診断。生年月日と今の状態から相性の良いパワーストーンを特定し、癒しのメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate:     { type: "string", description: "生年月日（YYYY-MM-DD形式、任意）" },
+        current_state: { type: "string", description: "今の状態・悩み・求めているエネルギー（任意）" },
+      },
+    },
+  },
+  {
+    name: "angel_number",
+    description: "エンジェルナンバー解読。繰り返し見る数字や気になる数字を入力すると、天使からのメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        number: { type: "string", description: "気になる数字（例：111、1234、777など）" },
+      },
+      required: ["number"],
+    },
+  },
+  {
+    name: "spirit_animal",
+    description: "スピリットアニマル診断。自分の特徴・傾向・好みを入力すると、守護精霊動物とそのメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "自分の性格・好きな場所・本能的に惹かれる動物・傾向など（自由記述）" },
+      },
+      required: ["description"],
+    },
+  },
+  {
+    name: "mandala_reading",
+    description: "マンダラ占い。1〜9の数字を直感で選ぶと、そのマンダラポジションのエネルギーと今のメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        position: { type: "number", description: "直感で選んだ数字（1〜9）" },
+        question:  { type: "string", description: "今のテーマや質問（任意）" },
+      },
+      required: ["position"],
+    },
+  },
+  {
+    name: "rune_reading",
+    description: "ルーン占い（一文字引き）。質問を入力するとルーン文字をランダムに引き、その意味とメッセージを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "今の質問・テーマ・悩み（任意）" },
+      },
+    },
+  },
+  {
+    name: "i_ching",
+    description: "易占い。質問を入力すると六十四卦からランダムに一卦を引き、今この瞬間の宇宙の答えを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "今の質問・悩み・判断を迫られていること" },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "biorhythm",
+    description: "バイオリズム診断。生年月日から今日の肉体・感情・知性の3サイクルを計算し、コンディションと行動指針を届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate:   { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+        target_date: { type: "string", description: "診断したい日付（YYYY-MM-DD形式、省略時は今日）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "celtic_cross",
+    description: "ケルト十字スプレッド。タロット10枚展開で状況・障害・過去・未来・深層など多面的な読みを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "占いたいテーマや質問" },
+      },
+      required: ["question"],
+    },
+  },
+  {
+    name: "yearly_forecast",
+    description: "年間運勢予測。生年月日と対象年から総合運・愛情運・仕事運・金運の年間の流れを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+        year:      { type: "number", description: "対象年（例：2026、省略時は今年）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "monthly_fortune",
+    description: "月間運勢。生年月日と対象月からその月の運勢の流れ・注目時期・テーマを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate:  { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+        year_month: { type: "string", description: "対象年月（YYYY-MM形式、省略時は今月）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "love_oracle",
+    description: "恋愛オラクル。恋愛に関する悩みや状況を入力すると、愛の神秘的なメッセージと指針を届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        situation: { type: "string", description: "今の恋愛状況・悩み・質問（自由記述）" },
+      },
+      required: ["situation"],
+    },
+  },
+  {
+    name: "career_reading",
+    description: "仕事・キャリア占い。仕事の悩みや方向性の迷いを入力すると、魂の視点から最善のキャリアパスを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        concern:   { type: "string", description: "仕事・キャリアの悩みや質問（自由記述）" },
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式、任意）" },
+      },
+      required: ["concern"],
+    },
+  },
+  {
+    name: "health_energy",
+    description: "健康エネルギー診断。今の体の状態や気になる症状を入力すると、エネルギー的な視点から健康の指針を届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        concern:   { type: "string", description: "体の状態・気になる症状・疲れ感など（自由記述）" },
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式、任意）" },
+      },
+      required: ["concern"],
+    },
+  },
+  {
+    name: "wealth_flow",
+    description: "金運診断。生年月日から金運のサイクル・お金との関係性・今の流れと開運アクションを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式）" },
+      },
+      required: ["birthdate"],
+    },
+  },
+  {
+    name: "mercury_retrograde",
+    description: "水星逆行チェック。指定した日が水星逆行期間中かどうかを確認し、その時期に合わせたアドバイスを届けます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "確認したい日付（YYYY-MM-DD形式、省略時は今日）" },
+      },
+    },
+  },
+  {
+    name: "numerology_name",
+    description: "姓名判断。氏名の漢字画数から五格（天格・人格・地格・外格・総格）を計算し、運命の流れを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        full_name: { type: "string", description: "氏名（姓と名をスペースで区切って入力。例：山田 花子）" },
+      },
+      required: ["full_name"],
+    },
+  },
+  {
+    name: "cosmic_timing",
+    description: "宇宙のタイミング診断。今取り組もうとしていることを入力すると、今が行動すべき時かどうか宇宙の流れを読み解きます。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action:    { type: "string", description: "今取り組もうとしていること・決断しようとしていること（自由記述）" },
+        birthdate: { type: "string", description: "生年月日（YYYY-MM-DD形式、任意）" },
+      },
+      required: ["action"],
+    },
+  },
 ];
 
 const TAROT_CARDS = [
@@ -935,9 +1287,25 @@ const TAROT_CARDS = [
 ];
 
 async function handleMcp(request, env) {
+  // Streamable HTTP: GET リクエストにはサーバー情報を返す
+  if (request.method === "GET") {
+    return new Response(JSON.stringify({
+      name: "tomu-mystic",
+      version: "1.0.0",
+      protocolVersion: "2024-11-05",
+    }), {
+      headers: {
+        "Content-Type": "application/json",
+        ...CORS_HEADERS,
+      },
+    });
+  }
+
   // MCP_TOKEN が設定されている場合のみ認証チェック
   if (env.MCP_TOKEN) {
+    const url = new URL(request.url);
     const token =
+      url.searchParams.get("token") ??
       request.headers.get("X-MCP-Token") ??
       (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
     if (token !== env.MCP_TOKEN) {
@@ -1049,6 +1417,350 @@ async function handleMcpToolCall(id, params, env) {
           env,
           `あなたは宇宙のチャネラーです。ユーザーの今の気持ちや状況を受け取り、宇宙からの神秘的なメッセージを詩的な日本語で届けてください。150〜200文字程度で。`,
           `今の気持ち・状況：${feeling}`
+        );
+        break;
+      }
+
+      case "past_life": {
+        const { description: plDesc } = args;
+        if (!plDesc) return mcpError(id, -32602, "description は必須です");
+        text = await callClaude(
+          env,
+          `あなたは魂の記憶を読む前世占い師です。ユーザーの自己描写から前世の物語を読み解き、魂が歩んできた旅を神秘的で詩的な日本語で語ってください。400文字程度で。`,
+          `自己描写・傾向：${plDesc}`
+        );
+        break;
+      }
+
+      case "guardian_star": {
+        const { birthdate: gsBd } = args;
+        if (!gsBd) return mcpError(id, -32602, "birthdate は必須です");
+        const gsSign = getSunSign(gsBd);
+        text = await callClaude(
+          env,
+          `あなたは星の守護者です。以下の確定済みデータを元に、守護星の性質と今週の指針・開運アドバイスを神秘的な文体で日本語で届けてください。星座は変えないでください。300文字程度で。`,
+          `生年月日：${gsBd}\n太陽星座：${gsSign}`
+        );
+        text = `【守護星診断：${gsSign}】\n\n${text}`;
+        break;
+      }
+
+      case "dream_reading": {
+        const { dream } = args;
+        if (!dream) return mcpError(id, -32602, "dream は必須です");
+        text = await callClaude(
+          env,
+          `あなたはスピリチュアルな夢解読師です。ユーザーが見た夢の内容を受け取り、象徴・潜在意識・スピリチュアルな意味を神秘的な文体で日本語で解説してください。300文字程度で。`,
+          `夢の内容：${dream}`
+        );
+        break;
+      }
+
+      case "compatibility": {
+        const { birthdate1, birthdate2 } = args;
+        if (!birthdate1 || !birthdate2) return mcpError(id, -32602, "birthdate1・birthdate2 は必須です");
+        const cs1 = getSunSign(birthdate1), cs2 = getSunSign(birthdate2);
+        const cl1 = getLifePathNumber(birthdate1), cl2 = getLifePathNumber(birthdate2);
+        text = await callClaude(
+          env,
+          `あなたは魂の縁を読む占い師です。以下の確定済みデータを元に、2人の魂レベルの相性・絆の意味・共に成長するための鍵を神秘的な文体で日本語で届けてください。星座とライフパスナンバーは変えないでください。350文字程度で。`,
+          `1人目：生年月日${birthdate1}・${cs1}・ライフパスナンバー${cl1}\n2人目：生年月日${birthdate2}・${cs2}・ライフパスナンバー${cl2}`
+        );
+        text = `【相性診断】1人目：${cs1}（LP:${cl1}）× 2人目：${cs2}（LP:${cl2}）\n\n${text}`;
+        break;
+      }
+
+      case "soul_mission": {
+        const { description: smDesc, birthdate: smBd } = args;
+        if (!smDesc) return mcpError(id, -32602, "description は必須です");
+        const smBdInfo = smBd ? `\n生年月日：${smBd}\nライフパスナンバー：${getLifePathNumber(smBd)}` : '';
+        text = await callClaude(
+          env,
+          `あなたは魂の設計図を読む占い師です。ユーザーの記述から今世の魂の使命・ライフテーマ・与えるべきギフトを読み解き、宇宙からのメッセージとして神秘的な文体で日本語で伝えてください。400文字程度で。`,
+          `自己描写：${smDesc}${smBdInfo}`
+        );
+        break;
+      }
+
+      case "moon_journal": {
+        const mjDate = args.date || new Date().toISOString().split("T")[0];
+        const mjPhase = args.moon_phase || null;
+        const mjPhaseDesc = mjPhase ? `月相：${mjPhase}` : `今日の日付：${mjDate}`;
+        text = await callClaude(
+          env,
+          `あなたは月の神秘を語る案内人です。以下の確定済み月相データを元に、内省のための問いかけと月からのメッセージを詩的な日本語で届けてください。月相名は変えないでください。250文字程度で。`,
+          `今日の日付：${mjDate}\n${mjPhaseDesc}`
+        );
+        text = `【月相ジャーナル：${mjDate}${mjPhase ? '・' + mjPhase : ''}】\n\n${text}`;
+        break;
+      }
+
+      case "aura_reading": {
+        const { current_state: arState } = args;
+        if (!arState) return mcpError(id, -32602, "current_state は必須です");
+        text = await callClaude(
+          env,
+          `あなたはオーラを視るスピリチュアルリーダーです。ユーザーの今の状態から現在のオーラカラーを特定し、そのエネルギーの意味・魂の状態・今週の開運カラーを神秘的な文体で日本語で伝えてください。400文字程度で。`,
+          `今の状態：${arState}`
+        );
+        break;
+      }
+
+      case "chakra_check": {
+        const { concern: ccConcern } = args;
+        if (!ccConcern) return mcpError(id, -32602, "concern は必須です");
+        text = await callClaude(
+          env,
+          `あなたはチャクラを診るエネルギーヒーラーです。ユーザーの悩みや症状から滞っているチャクラを特定し、そのチャクラの意味・滞りの原因・解放のための実践・魂のメッセージを神秘的な文体で日本語で伝えてください。400文字程度で。`,
+          `気になる症状・悩み：${ccConcern}`
+        );
+        break;
+      }
+
+      case "power_stone": {
+        const { birthdate: psBd, current_state: psState } = args;
+        if (!psBd && !psState) return mcpError(id, -32602, "birthdate または current_state のいずれかは必須です");
+        const psBdInfo = psBd ? `生年月日：${psBd}\n太陽星座：${getSunSign(psBd)}\n` : '';
+        const psStateInfo = psState ? `今の状態：${psState}` : '';
+        text = await callClaude(
+          env,
+          `あなたはクリスタルヒーラーです。以下のデータを元に最も相性の良いパワーストーンを特定し、その石のエネルギー・使い方・癒しのメッセージを神秘的な文体で日本語で伝えてください。350文字程度で。`,
+          `${psBdInfo}${psStateInfo}`
+        );
+        break;
+      }
+
+      case "angel_number": {
+        const { number: anNum } = args;
+        if (!anNum) return mcpError(id, -32602, "number は必須です");
+        text = await callClaude(
+          env,
+          `あなたは天使のメッセージを伝えるエンジェルナンバーリーダーです。ユーザーが繰り返し見る数字の意味・天使からのメッセージ・今この瞬間に必要な行動を神秘的な文体で日本語で届けてください。300文字程度で。`,
+          `エンジェルナンバー：${anNum}`
+        );
+        text = `【エンジェルナンバー：${anNum}】\n\n${text}`;
+        break;
+      }
+
+      case "spirit_animal": {
+        const { description: saDesc } = args;
+        if (!saDesc) return mcpError(id, -32602, "description は必須です");
+        text = await callClaude(
+          env,
+          `あなたはシャーマニックな精霊動物ガイドです。ユーザーの自己描写から守護精霊動物を特定し、その動物のエネルギー・もたらすメッセージ・今週の指針を神秘的な文体で日本語で届けてください。400文字程度で。`,
+          `自己描写・傾向：${saDesc}`
+        );
+        break;
+      }
+
+      case "mandala_reading": {
+        const { position: mPos, question: mQuestion } = args;
+        if (!mPos || mPos < 1 || mPos > 9) return mcpError(id, -32602, "position は1〜9の数字で入力してください");
+        const mandalaPositions = [
+          "中央（自己の核心・今の本質）","上（意識・理想・目標）","右（外の世界・行動・現実）",
+          "下（潜在意識・基盤・過去）","左（内なる世界・直感・感情）","右上（光・才能・可能性）",
+          "右下（現実化・物質・安定）","左下（影・課題・変容）","左上（夢・霊性・高次意識）",
+        ];
+        const mPosDesc = mandalaPositions[mPos - 1];
+        const mQInfo = mQuestion ? `\n質問：${mQuestion}` : '';
+        text = await callClaude(
+          env,
+          `あなたはマンダラ占いの達人です。ユーザーが直感で選んだポジションのエネルギーと意味、今この瞬間のメッセージを神秘的な文体で日本語で伝えてください。300文字程度で。`,
+          `選んだポジション：${mPos}番（${mPosDesc}）${mQInfo}`
+        );
+        text = `【マンダラ第${mPos}番：${mPosDesc}】\n\n${text}`;
+        break;
+      }
+
+      case "rune_reading": {
+        const { question: rQuestion } = args;
+        const rune = RUNE_NAMES[Math.floor(Math.random() * RUNE_NAMES.length)];
+        const rQInfo = rQuestion ? `\n質問：${rQuestion}` : '';
+        text = await callClaude(
+          env,
+          `あなたは北欧の神秘を伝えるルーン占い師です。引いたルーン文字の古代的な意味・エネルギー・今の状況へのメッセージを神秘的な文体で日本語で届けてください。300文字程度で。`,
+          `引いたルーン：${rune}${rQInfo}`
+        );
+        text = `【引いたルーン：${rune}】\n\n${text}`;
+        break;
+      }
+
+      case "i_ching": {
+        const { question: icQuestion } = args;
+        if (!icQuestion) return mcpError(id, -32602, "question は必須です");
+        const hexagram = I_CHING_HEXAGRAMS[Math.floor(Math.random() * I_CHING_HEXAGRAMS.length)];
+        text = await callClaude(
+          env,
+          `あなたは易経の達人です。引いた卦の意味・象意・今この質問への宇宙の答えを神秘的で深い文体で日本語で伝えてください。400文字程度で。`,
+          `質問：${icQuestion}\n引いた卦：${hexagram}`
+        );
+        text = `【引いた卦：${hexagram}】\n\n${text}`;
+        break;
+      }
+
+      case "biorhythm": {
+        const { birthdate: bioBd, target_date: bioTd } = args;
+        if (!bioBd) return mcpError(id, -32602, "birthdate は必須です");
+        const bioTargetDate = bioTd || new Date().toISOString().split("T")[0];
+        const bio = calcBiorhythm(bioBd, bioTargetDate);
+        text = await callClaude(
+          env,
+          `あなたはバイオリズムを読む占い師です。指定日における肉体・感情・知性の3つのリズム値を受け取り、その人の今日のコンディションと取るべき行動指針を神秘的な文体で日本語で伝えてください。300文字程度で。`,
+          `生年月日：${bioBd}\n対象日：${bioTargetDate}\n肉体リズム：${bio.physical}%\n感情リズム：${bio.emotional}%\n知性リズム：${bio.intellectual}%`
+        );
+        text = `【バイオリズム（${bioTargetDate}）】肉体：${bio.physical}% 感情：${bio.emotional}% 知性：${bio.intellectual}%\n\n${text}`;
+        break;
+      }
+
+      case "celtic_cross": {
+        const { question: ccQ } = args;
+        if (!ccQ) return mcpError(id, -32602, "question は必須です");
+        const ccShuffled = [...TAROT_CARDS].sort(() => Math.random() - 0.5);
+        const ccPositions = [
+          "現在の状況","交差（障害・助力）","遠い過去","近い過去",
+          "可能性・最善策","近い未来","あなた自身","外的環境",
+          "希望と恐れ","最終結果",
+        ];
+        const ccSpread = ccPositions.map((p, i) => `${p}：${ccShuffled[i]}`).join("\n");
+        text = await callClaude(
+          env,
+          `あなたは深遠なタロット占い師です。ケルト十字スプレッドの10枚展開の意味を統合的に読み解き、状況・障害・過去・未来・深層を織り交ぜた神秘的なリーディングを日本語で届けてください。500文字程度で。`,
+          `質問：${ccQ}\n\n${ccSpread}`,
+          1000
+        );
+        text = `【ケルト十字スプレッド】\n${ccSpread}\n\n${text}`;
+        break;
+      }
+
+      case "yearly_forecast": {
+        const { birthdate: yfBd, year: yfYear } = args;
+        if (!yfBd) return mcpError(id, -32602, "birthdate は必須です");
+        const yfTargetYear = yfYear || new Date().getFullYear();
+        const yfSign = getSunSign(yfBd);
+        const yfLpn  = getLifePathNumber(yfBd);
+        const yfKi   = getNineStarKi(yfBd);
+        text = await callClaude(
+          env,
+          `あなたは年間運勢を読む占い師です。以下の確定済みデータを元に、対象年の総合運・愛情運・仕事運・金運・開運のポイントを神秘的な文体で日本語で伝えてください。星座・数字・本命星は変えないでください。500文字程度で。`,
+          `生年月日：${yfBd}\n太陽星座：${yfSign}\nライフパスナンバー：${yfLpn}\n本命星：${yfKi.name}\n対象年：${yfTargetYear}年`,
+          1000
+        );
+        text = `【${yfTargetYear}年の年間運勢】\n\n${text}`;
+        break;
+      }
+
+      case "monthly_fortune": {
+        const { birthdate: mfBd, year_month: mfYm } = args;
+        if (!mfBd) return mcpError(id, -32602, "birthdate は必須です");
+        const mfToday = new Date();
+        const mfTargetYm = mfYm || `${mfToday.getFullYear()}-${String(mfToday.getMonth() + 1).padStart(2, '0')}`;
+        const mfSign = getSunSign(mfBd);
+        const mfLpn  = getLifePathNumber(mfBd);
+        text = await callClaude(
+          env,
+          `あなたは月間運勢を読む占い師です。以下の確定済みデータを元に、対象月の全体的な流れ・注目すべき時期・テーマ・開運アクションを神秘的な文体で日本語で伝えてください。400文字程度で。`,
+          `生年月日：${mfBd}\n太陽星座：${mfSign}\nライフパスナンバー：${mfLpn}\n対象月：${mfTargetYm}`
+        );
+        text = `【${mfTargetYm}の月間運勢】\n\n${text}`;
+        break;
+      }
+
+      case "love_oracle": {
+        const { situation: loSit } = args;
+        if (!loSit) return mcpError(id, -32602, "situation は必須です");
+        text = await callClaude(
+          env,
+          `あなたは愛のスピリチュアルリーダーです。ユーザーの恋愛状況を受け取り、愛の神秘的なメッセージ・心の扉を開く鍵・今この恋に必要な行動を詩的で神秘的な日本語で届けてください。350文字程度で。`,
+          `恋愛状況・悩み：${loSit}`
+        );
+        break;
+      }
+
+      case "career_reading": {
+        const { concern: crConcern, birthdate: crBd } = args;
+        if (!crConcern) return mcpError(id, -32602, "concern は必須です");
+        const crBdInfo = crBd ? `\n生年月日：${crBd}\n太陽星座：${getSunSign(crBd)}\nライフパスナンバー：${getLifePathNumber(crBd)}` : '';
+        text = await callClaude(
+          env,
+          `あなたは魂の使命とキャリアを読む占い師です。ユーザーの仕事の悩みを受け取り、魂が本当に求める働き方・天職への道筋・今行動すべきことを神秘的な文体で日本語で伝えてください。400文字程度で。`,
+          `仕事・キャリアの悩み：${crConcern}${crBdInfo}`
+        );
+        break;
+      }
+
+      case "health_energy": {
+        const { concern: heConcern, birthdate: heBd } = args;
+        if (!heConcern) return mcpError(id, -32602, "concern は必須です");
+        const heBdInfo = heBd ? `\n生年月日：${heBd}\n太陽星座：${getSunSign(heBd)}` : '';
+        text = await callClaude(
+          env,
+          `あなたはエネルギーメディシンとスピリチュアルヒーリングの専門家です。ユーザーの体の状態や症状を受け取り、エネルギー的な視点から健康の指針・必要なケア・魂からのメッセージを神秘的な文体で日本語で伝えてください。※医療的診断ではなくスピリチュアルな観点でのアドバイスです。400文字程度で。`,
+          `体の状態・気になること：${heConcern}${heBdInfo}`
+        );
+        break;
+      }
+
+      case "wealth_flow": {
+        const { birthdate: wfBd } = args;
+        if (!wfBd) return mcpError(id, -32602, "birthdate は必須です");
+        const wfSign = getSunSign(wfBd);
+        const wfLpn  = getLifePathNumber(wfBd);
+        const wfKi   = getNineStarKi(wfBd);
+        text = await callClaude(
+          env,
+          `あなたは金運と豊かさの流れを読む占い師です。以下の確定済みデータを元に、その人の金運サイクル・お金との魂レベルの関係性・今の金運の流れ・開運アクションを神秘的な文体で日本語で伝えてください。本命星・星座・数字は変えないでください。400文字程度で。`,
+          `生年月日：${wfBd}\n太陽星座：${wfSign}\nライフパスナンバー：${wfLpn}\n本命星：${wfKi.name}`
+        );
+        text = `【金運診断】\n\n${text}`;
+        break;
+      }
+
+      case "mercury_retrograde": {
+        const { date: mrDate } = args;
+        const mrTargetDate = mrDate || new Date().toISOString().split("T")[0];
+        const mrResult = checkMercuryRetrograde(mrTargetDate);
+        const mrStatus = mrResult.retrograde
+          ? `水星逆行中（期間：${mrResult.period}）`
+          : "水星は順行中";
+        text = await callClaude(
+          env,
+          `あなたは占星術師です。水星の状態に合わせたアドバイス・注意点・この時期の過ごし方を神秘的な文体で日本語で伝えてください。250文字程度で。`,
+          `確認日：${mrTargetDate}\n水星の状態：${mrStatus}`
+        );
+        text = `【水星逆行チェック：${mrTargetDate}】\n${mrStatus}\n\n${text}`;
+        break;
+      }
+
+      case "numerology_name": {
+        const { full_name } = args;
+        if (!full_name) return mcpError(id, -32602, "full_name は必須です");
+        const nnCalc = calcGoKaku(full_name);
+        const nnNote = nnCalc.unknown ? '\n※一部の漢字の画数が未登録です。' : '';
+        text = await callClaude(
+          env,
+          `あなたは姓名判断の達人です。以下の画数は確定値です。この数値を使って運命の流れと今後の指針を神秘的な文体で日本語で伝えてください。絶対に画数を再計算しないでください。400文字程度で。`,
+          `氏名：${full_name}
+【確定済み五格 — 絶対に再計算しないでください】
+天格：${nnCalc.tenkaku}（確定値）
+人格：${nnCalc.jinkaku}（確定値）
+地格：${nnCalc.chikaku}（確定値）
+外格：${nnCalc.sotokaku}（確定値）
+総格：${nnCalc.soukaku}（確定値）${nnNote}
+以上の数値をそのまま使い、独自に画数を算出・修正しないでください。`
+        );
+        text = `【姓名判断：${full_name}】天格:${nnCalc.tenkaku} 人格:${nnCalc.jinkaku} 地格:${nnCalc.chikaku} 外格:${nnCalc.sotokaku} 総格:${nnCalc.soukaku}\n\n${text}`;
+        break;
+      }
+
+      case "cosmic_timing": {
+        const { action: ctAction, birthdate: ctBd } = args;
+        if (!ctAction) return mcpError(id, -32602, "action は必須です");
+        const ctToday = new Date().toISOString().split("T")[0];
+        const ctBdInfo = ctBd ? `\n生年月日：${ctBd}\n太陽星座：${getSunSign(ctBd)}\nライフパスナンバー：${getLifePathNumber(ctBd)}` : '';
+        text = await callClaude(
+          env,
+          `あなたは宇宙のタイミングを読む占い師です。ユーザーが取り組もうとしていることと今の宇宙の流れを照らし合わせ、今が行動すべき時かどうか・最適なタイミング・宇宙からのアドバイスを神秘的な文体で日本語で伝えてください。350文字程度で。`,
+          `今日の日付：${ctToday}\n取り組もうとしていること：${ctAction}${ctBdInfo}`
         );
         break;
       }

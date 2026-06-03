@@ -1,14 +1,15 @@
 {
-  "_comment": "Claude Desktop / Cursor への MCP サーバー登録サンプル",
+  "_comment": "Claude Desktop / Cursor への MCP サーバー登録設定（Streamable HTTP 形式）",
   "_usage": {
     "claude_desktop": "~/Library/Application Support/Claude/claude_desktop_config.json (Mac) または %APPDATA%\\Claude\\claude_desktop_config.json (Win) に mcpServers セクションを追記",
     "cursor": "Settings > MCP > Add Server > URL を入力",
-    "worker_url": "YOUR_SUBDOMAIN は Workers ダッシュボードで確認（例: mystic-system-worker.abc123.workers.dev）"
+    "protocol": "Streamable HTTP (MCP 2024-11-05 仕様)"
   },
 
   "mcpServers": {
     "tomu-mystic": {
-      "url": "https://mystic-system-worker.YOUR_SUBDOMAIN.workers.dev/mcp",
+      "type": "http",
+      "url": "https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp",
       "headers": {
         "X-MCP-Token": "YOUR_MCP_TOKEN_HERE"
       }
@@ -17,40 +18,12 @@
 
   "_mcp_token_note": "MCP_TOKEN は Workers の環境変数として設定してください（未設定時は認証スキップ）。Cloudflare Dashboard > Workers > Settings > Variables から追加。",
 
-  "_tools": [
-    {
-      "name": "star_reading",
-      "description": "今日の星読み",
-      "required_args": ["birthdate (YYYY-MM-DD)"]
-    },
-    {
-      "name": "tarot_draw",
-      "description": "タロット一枚引き",
-      "required_args": []
-    },
-    {
-      "name": "numerology",
-      "description": "数秘術診断（ライフパスナンバー計算）",
-      "required_args": ["birthdate (YYYY-MM-DD)"],
-      "optional_args": ["name"]
-    },
-    {
-      "name": "lucky_color",
-      "description": "今日の開運カラー",
-      "required_args": ["birthdate (YYYY-MM-DD)"],
-      "optional_args": ["target_date (YYYY-MM-DD、省略時は今日)"]
-    },
-    {
-      "name": "oracle_message",
-      "description": "宇宙からのメッセージ",
-      "required_args": ["feeling（今の気持ちや状況）"]
-    }
-  ],
-
   "_curl_test_examples": {
-    "tools_list": "curl -X POST https://mystic-system-worker.YOUR_SUBDOMAIN.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'",
-    "star_reading": "curl -X POST https://mystic-system-worker.YOUR_SUBDOMAIN.workers.dev/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"star_reading\",\"arguments\":{\"birthdate\":\"1990-05-15\"}}}'",
-    "tarot_draw": "curl -X POST https://mystic-system-worker.YOUR_SUBDOMAIN.workers.dev/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"tarot_draw\",\"arguments\":{}}}'",
-    "oracle_message": "curl -X POST https://mystic-system-worker.YOUR_SUBDOMAIN.workers.dev/mcp -H 'Content-Type: application/json' -d '{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"oracle_message\",\"arguments\":{\"feeling\":\"最近なんとなく不安で眠れない\"}}}'"
+    "server_info_get": "curl https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'X-MCP-Token: YOUR_TOKEN'",
+    "initialize": "curl -X POST https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2024-11-05\",\"capabilities\":{},\" clientInfo\":{\"name\":\"test\",\"version\":\"1.0\"}}}'",
+    "tools_list": "curl -X POST https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}'",
+    "star_reading": "curl -X POST https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"star_reading\",\"arguments\":{\"birthdate\":\"1990-05-15\"}}}'",
+    "tarot_draw": "curl -X POST https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"tarot_draw\",\"arguments\":{}}}'",
+    "oracle_message": "curl -X POST https://mystic-system-worker.inverted-triangle-leef.workers.dev/mcp -H 'Content-Type: application/json' -H 'X-MCP-Token: YOUR_TOKEN' -d '{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"oracle_message\",\"arguments\":{\"feeling\":\"最近なんとなく不安で眠れない\"}}}'"
   }
 }
