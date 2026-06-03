@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Background: deep purple-blue rounded square -->
+  <rect width="512" height="512" rx="80" ry="80" fill="#0d0d1a"/>
+
+  <!-- Crescent moon (white, thin crescent) -->
+  <!-- Full circle then subtract to make crescent -->
+  <circle cx="256" cy="170" r="70" fill="#ffffff"/>
+  <circle cx="286" cy="155" r="65" fill="#0d0d1a"/>
+
+  <!-- "MYSTIC" text in gold below moon -->
+  <text x="256" y="310" text-anchor="middle" font-family="Georgia, serif" font-size="64" font-weight="bold" fill="#C9973A" letter-spacing="6">MYSTIC</text>
+
+  <!-- 6 small stars arranged in a circle around center -->
+  <!-- Star at top (above moon) -->
+  <polygon points="256,60 259,70 270,70 261,76 264,87 256,81 248,87 251,76 242,70 253,70" fill="#C9973A"/>
+  <!-- Star at top-right -->
+  <polygon points="370,110 373,120 384,120 375,126 378,137 370,131 362,137 365,126 356,120 367,120" fill="#C9973A"/>
+  <!-- Star at bottom-right -->
+  <polygon points="400,240 403,250 414,250 405,256 408,267 400,261 392,267 395,256 386,250 397,250" fill="#C9973A"/>
+  <!-- Star at bottom -->
+  <polygon points="256,380 259,390 270,390 261,396 264,407 256,401 248,407 251,396 242,390 253,390" fill="#C9973A"/>
+  <!-- Star at bottom-left -->
+  <polygon points="112,240 115,250 126,250 117,256 120,267 112,261 104,267 107,256 98,250 109,250" fill="#C9973A"/>
+  <!-- Star at top-left -->
+  <polygon points="142,110 145,120 156,120 147,126 150,137 142,131 134,137 137,126 128,120 139,120" fill="#C9973A"/>
+</svg>
