@@ -130,6 +130,9 @@ export default {
 
       if (path === "/mcp")                   return handleMcp(request, env);
 
+      if (path === "/legal/tokushoho")       return htmlResponse(MYSTIC_TOKUSHOHO_HTML);
+      if (path === "/legal/privacy")         return htmlResponse(MYSTIC_PRIVACY_HTML);
+
       return jsonResponse({ error: "Not Found" }, 404);
 
     } catch (err) {
@@ -865,6 +868,270 @@ function jsonResponse(data, status = 200) {
     headers: { "Content-Type": "application/json", ...CORS_HEADERS },
   });
 }
+
+function htmlResponse(html) {
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+const MYSTIC_LEGAL_STYLE = `<style>
+:root {
+  --bg: #05050f;
+  --surface: #0d0d1e;
+  --card: #11112a;
+  --border: #2a2a4a;
+  --accent: #c49bff;
+  --accent2: #7ec8e3;
+  --gold: #f0d080;
+  --text: #e8e0f0;
+  --muted: #8880a8;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Hiragino Mincho ProN', 'Yu Mincho', Georgia, serif;
+  line-height: 1.8;
+}
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(100,60,180,.12) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(60,120,200,.10) 0%, transparent 50%);
+  pointer-events: none;
+  z-index: 0;
+}
+header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(5,5,15,.9);
+  backdrop-filter: blur(10px);
+}
+.logo {
+  font-size: 1rem;
+  letter-spacing: .25em;
+  color: var(--accent);
+  text-decoration: none;
+  text-transform: uppercase;
+}
+main {
+  position: relative;
+  z-index: 1;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+}
+h1 {
+  font-size: 1.75rem;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+h2 {
+  font-size: 1.05rem;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  color: var(--gold);
+  margin: 2.5rem 0 0.75rem;
+}
+p { margin-bottom: 1rem; font-size: 0.875rem; color: var(--text); }
+ul { margin: 0.5rem 0 1rem 1.4rem; font-size: 0.875rem; }
+ul li { padding: 0.15rem 0; color: var(--text); }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 3rem;
+  font-size: 0.875rem;
+}
+th, td {
+  padding: 1rem 1.2rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th {
+  width: 34%;
+  background: var(--card);
+  font-weight: 400;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+td { background: var(--surface); color: var(--text); }
+.price-list { margin: 0; padding: 0; list-style: none; }
+.price-list li { padding: 0.25rem 0; display: flex; align-items: baseline; gap: 0.6rem; }
+.price-badge {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 0.65rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 3px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+.effective-date { font-size: 0.8rem; color: var(--muted); margin-bottom: 2.5rem; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid transparent;
+  transition: border-color .2s;
+  margin-top: 2rem;
+}
+.back-link:hover { border-color: var(--accent); }
+footer {
+  position: relative;
+  z-index: 1;
+  border-top: 1px solid var(--border);
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+}
+@media(max-width:640px){ main { padding: 2rem 1rem 4rem; } th { width: 40%; } }
+</style>`;
+
+const MYSTIC_LEGAL_NAV = `<header>
+  <a href="https://tomu-ai963.github.io/tomu-mystic/" class="logo">✦ とむMYSTIC</a>
+</header>`;
+
+const MYSTIC_TOKUSHOHO_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>特定商取引法に基づく表記 — とむMYSTIC</title>
+${MYSTIC_LEGAL_STYLE}
+</head>
+<body>
+${MYSTIC_LEGAL_NAV}
+<main>
+  <h1>✦ 特定商取引法に基づく表記</h1>
+  <table>
+    <tr>
+      <th>運営者・運営責任者</th>
+      <td>藤山　博史</td>
+    </tr>
+    <tr>
+      <th>所在地・電話番号</th>
+      <td>請求があった場合には速やかに開示いたします</td>
+    </tr>
+    <tr>
+      <th>メールアドレス</th>
+      <td>Inverted.triangle.leef@gmail.com</td>
+    </tr>
+    <tr>
+      <th>販売価格</th>
+      <td>
+        <ul class="price-list">
+          <li><span class="price-badge">ライト</span>月額 480円（税込）</li>
+          <li><span class="price-badge">スタンダード</span>月額 980円（税込）</li>
+          <li><span class="price-badge">フル</span>月額 1,480円（税込）</li>
+        </ul>
+      </td>
+    </tr>
+    <tr>
+      <th>支払方法</th>
+      <td>クレジットカード（Stripe決済）</td>
+    </tr>
+    <tr>
+      <th>サービス提供時期</th>
+      <td>決済完了後即時</td>
+    </tr>
+    <tr>
+      <th>返金・キャンセル</th>
+      <td>月途中のキャンセルによる返金は行いません</td>
+    </tr>
+  </table>
+  <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
+</main>
+<footer>© 2026 とむMYSTIC. All rights reserved.</footer>
+</body>
+</html>`;
+
+const MYSTIC_PRIVACY_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>プライバシーポリシー — とむMYSTIC</title>
+${MYSTIC_LEGAL_STYLE}
+</head>
+<body>
+${MYSTIC_LEGAL_NAV}
+<main>
+  <h1>✦ プライバシーポリシー</h1>
+  <p class="effective-date">制定日：2026年1月1日</p>
+
+  <p>とむMYSTIC（以下「本サービス」）は、ユーザーの個人情報の取り扱いについて以下のとおり定めます。</p>
+
+  <h2>1. 収集する個人情報</h2>
+  <p>本サービスは、以下の情報を収集する場合があります。</p>
+  <ul>
+    <li>メールアドレス（ログイン・サブスクリプション管理・お問い合わせ時）</li>
+    <li>決済関連情報（Stripe社を通じた処理。カード番号等はStripe社が管理し、本サービスは保持しません）</li>
+    <li>サービス利用状況（AI機能の利用回数・プラン情報）</li>
+  </ul>
+
+  <h2>2. 利用目的</h2>
+  <p>収集した個人情報は、以下の目的で利用します。</p>
+  <ul>
+    <li>本サービスの提供・運営・改善</li>
+    <li>サブスクリプションプランの管理</li>
+    <li>利用制限・不正利用の検知</li>
+    <li>お問い合わせへの対応</li>
+    <li>重要なお知らせの送信</li>
+  </ul>
+
+  <h2>3. 第三者への提供</h2>
+  <p>本サービスは、以下の場合を除き、個人情報を第三者に提供しません。</p>
+  <ul>
+    <li>法令に基づき開示が必要な場合</li>
+    <li>ユーザーの同意がある場合</li>
+  </ul>
+  <p>なお、本サービスは以下の外部サービスを利用しています。</p>
+  <ul>
+    <li>Stripe, Inc.（決済処理）</li>
+    <li>Anthropic, PBC（AI機能）</li>
+    <li>Cloudflare, Inc.（インフラ・ホスティング）</li>
+  </ul>
+
+  <h2>4. Cookie・アクセス解析</h2>
+  <p>本サービス独自のアクセス解析ツールは現時点では導入していません。</p>
+
+  <h2>5. 個人情報の管理</h2>
+  <p>収集した個人情報は、Cloudflare Workers KVにて管理し、適切なアクセス制御を実施しています。サービス退会後、不要となった情報は速やかに削除します。</p>
+
+  <h2>6. ポリシーの変更</h2>
+  <p>本ポリシーの内容は、法令の改正やサービス変更に応じて予告なく変更する場合があります。変更後の内容は、本ページに掲載した時点から効力を生じます。</p>
+
+  <h2>7. お問い合わせ</h2>
+  <p>個人情報の取り扱いに関するお問い合わせは、下記メールアドレスまでご連絡ください。</p>
+  <p>Inverted.triangle.leef@gmail.com</p>
+
+  <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
+</main>
+<footer>© 2026 とむMYSTIC. All rights reserved.</footer>
+</body>
+</html>`;
 
 // ============================================
 // MCP 用追加定数・ユーティリティ
