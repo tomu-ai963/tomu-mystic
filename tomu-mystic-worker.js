@@ -125,6 +125,7 @@ export default {
 
       if (path === "/subscription/check")    return handleSubscriptionCheck(request, env);
       if (path === "/subscription/register") return handleSubscriptionRegister(request, env);
+      if (path === "/mail-pref")              return handleMailPref(request, env);
       if (path === "/stripe/checkout")       return handleStripeCheckout(request, env);
       if (path === "/webhook")               return handleStripeWebhook(request, env);
 
@@ -138,6 +139,11 @@ export default {
     } catch (err) {
       return jsonResponse({ error: "サーバーエラー: " + err.message }, 500);
     }
+  },
+
+  // 毎時起動 → JST時刻が一致するユーザーへ占いメールを配信
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runDailyMail(env));
   },
 };
 
@@ -172,6 +178,53 @@ async function handleSubscriptionRegister(request, env) {
     createdAt: new Date().toISOString(),
   }));
   return jsonResponse({ success: true });
+}
+
+// ============================================
+// 毎朝の占いメール — 配信設定管理
+// KVキー: mail_pref:<userId> → { enabled, apps, hour }
+// ============================================
+
+const MAIL_PREF_PREFIX = "mail_pref:";
+const DEFAULT_MAIL_PREF = { enabled: false, apps: [], hour: 7 };
+
+async function getMailPref(userId, env) {
+  try {
+    const data = await env.MYSTIC_SUBSCRIPTIONS.get(MAIL_PREF_PREFIX + userId);
+    if (!data) return { ...DEFAULT_MAIL_PREF };
+    const pref = JSON.parse(data);
+    return {
+      enabled: pref.enabled === true,
+      apps: Array.isArray(pref.apps) ? pref.apps : [],
+      hour: Number.isInteger(pref.hour) ? pref.hour : DEFAULT_MAIL_PREF.hour,
+    };
+  } catch {
+    return { ...DEFAULT_MAIL_PREF };
+  }
+}
+
+async function handleMailPref(request, env) {
+  const userId = request.headers.get("X-User-Id");
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+
+  if (request.method === "GET") {
+    return jsonResponse({ pref: await getMailPref(userId, env) });
+  }
+
+  if (request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    const apps = Array.isArray(body.apps)
+      ? body.apps.filter(id => Object.prototype.hasOwnProperty.call(DAILY_MAIL_APPS, id))
+      : [];
+    const hour = Number.isInteger(body.hour) && body.hour >= 0 && body.hour <= 23
+      ? body.hour
+      : DEFAULT_MAIL_PREF.hour;
+    const pref = { enabled: body.enabled === true, apps, hour };
+    await env.MYSTIC_SUBSCRIPTIONS.put(MAIL_PREF_PREFIX + userId, JSON.stringify(pref));
+    return jsonResponse({ success: true, pref });
+  }
+
+  return jsonResponse({ error: "Method Not Allowed" }, 405);
 }
 
 // ============================================
@@ -856,6 +909,177 @@ async function handlePalmReading(request, env) {
     mimeType || "image/jpeg"
   );
   return jsonResponse({ result });
+}
+
+// ============================================
+// 毎朝の占いメール — 配信内容生成 & 送信
+// ============================================
+
+// 個人の生年月日を保持していないため、入力なしで成立する占いのみを採用
+const DAILY_MAIL_APPS = {
+  tarot_draw: {
+    label: "タロット一枚引き",
+    icon: "🃏",
+    async generate(env) {
+      const card = TAROT_CARDS[Math.floor(Math.random() * TAROT_CARDS.length)];
+      const text = await callClaude(
+        env,
+        `あなたは神秘的なタロット占い師です。引いたカードのエネルギーと意味を、今日一日を歩み始めるユーザーへの朝のメッセージとして神秘的な文体で日本語で届けてください。250文字程度で。`,
+        `引いたカード：${card}`
+      );
+      return { title: `タロット一枚引き — 「${card}」`, body: text };
+    },
+  },
+  rune_reading: {
+    label: "ルーン占い",
+    icon: "ᚱ",
+    async generate(env) {
+      const rune = RUNE_NAMES[Math.floor(Math.random() * RUNE_NAMES.length)];
+      const text = await callClaude(
+        env,
+        `あなたは北欧の神秘を伝えるルーン占い師です。引いたルーン文字の古代的な意味・エネルギー・今日という一日へのメッセージを神秘的な文体で日本語で届けてください。250文字程度で。`,
+        `引いたルーン：${rune}`
+      );
+      return { title: `ルーン占い — ${rune}`, body: text };
+    },
+  },
+  oracle_message: {
+    label: "オラクルメッセージ",
+    icon: "🌌",
+    async generate(env, ctx) {
+      const text = await callClaude(
+        env,
+        `あなたは宇宙のチャネラーです。新しい一日を迎えるユーザーに向けて、宇宙からの神秘的な朝のメッセージを詩的な日本語で届けてください。150〜200文字程度で。`,
+        `今日の日付：${ctx.today}\nこれから一日を始めるユーザーへ、宇宙からの朝のメッセージを届けてください。`
+      );
+      return { title: "今日のオラクルメッセージ", body: text };
+    },
+  },
+  moon_journal: {
+    label: "月相ジャーナル",
+    icon: "📔",
+    async generate(env, ctx) {
+      const text = await callClaude(
+        env,
+        `あなたは月の神秘を語る案内人です。今日という日の朝に、内省のための問いかけと月からのメッセージを詩的な日本語で届けてください。200文字程度で。`,
+        `今日の日付：${ctx.today}`
+      );
+      return { title: `月相ジャーナル — ${ctx.today}`, body: text };
+    },
+  },
+};
+
+function escapeHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+function buildDailyMailHtml(today, sections) {
+  const sectionsHtml = sections.map(s => `
+    <tr><td style="padding:0 28px 24px;">
+      <div style="background:#11112a;border:1px solid #2a2a4a;border-radius:14px;padding:24px;">
+        <p style="margin:0 0 10px;font-size:14px;letter-spacing:.08em;color:#f0d080;">${s.icon || "✦"} ${escapeHtml(s.title)}</p>
+        <p style="margin:0;font-size:14px;line-height:1.9;color:#e8e0f0;white-space:pre-wrap;">${escapeHtml(s.body)}</p>
+      </div>
+    </td></tr>`).join("");
+
+  return `<!DOCTYPE html>
+<html lang="ja"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#05050f;font-family:'Hiragino Mincho ProN','Yu Mincho',Georgia,serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#05050f;">
+    <tr><td align="center" style="padding:36px 16px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;">
+        <tr><td style="padding:0 28px 28px;text-align:center;">
+          <p style="margin:0;font-size:13px;letter-spacing:.3em;color:#c49bff;">✦ とむMYSTIC ✦</p>
+          <p style="margin:8px 0 0;font-size:12px;letter-spacing:.15em;color:#8880a8;">${escapeHtml(today)} の占いをお届けします</p>
+        </td></tr>
+        ${sectionsHtml}
+        <tr><td style="padding:4px 28px 0;text-align:center;">
+          <p style="margin:0 0 6px;font-size:11px;letter-spacing:.1em;color:#8880a8;">配信設定の変更は とむMYSTIC マイページから行えます</p>
+          <p style="margin:0;font-size:10px;letter-spacing:.15em;color:#8880a8;">© 2026 とむMYSTIC</p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`;
+}
+
+async function sendDailyMail(env, to, today, sections) {
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "とむMYSTIC <noreply@tomu-ai.dev>",
+      to: [to],
+      subject: `✦ とむMYSTIC — ${today}の占い`,
+      html: buildDailyMailHtml(today, sections),
+    }),
+  });
+  if (!res.ok) {
+    console.error(`Resend送信失敗 (${to}): ${await res.text()}`);
+  }
+}
+
+// ============================================
+// 毎朝の占いメール — Cronによる配信処理
+// ============================================
+
+function jstParts(date) {
+  const jst = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return { hour: jst.getUTCHours(), dateString: jst.toISOString().split("T")[0] };
+}
+
+async function runDailyMail(env) {
+  if (!env.RESEND_API_KEY) return;
+
+  const { hour: currentHour, dateString: today } = jstParts(new Date());
+
+  let cursor;
+  do {
+    const list = await env.MYSTIC_SUBSCRIPTIONS.list({ prefix: MAIL_PREF_PREFIX, cursor });
+    for (const key of list.keys) {
+      const userId = key.name.slice(MAIL_PREF_PREFIX.length);
+      await processDailyMailUser(userId, currentHour, today, env);
+    }
+    cursor = list.list_complete ? undefined : list.cursor;
+  } while (cursor);
+}
+
+async function processDailyMailUser(userId, currentHour, today, env) {
+  try {
+    const data = await env.MYSTIC_SUBSCRIPTIONS.get(MAIL_PREF_PREFIX + userId);
+    if (!data) return;
+
+    const pref = JSON.parse(data);
+    if (!pref.enabled || pref.hour !== currentHour || !Array.isArray(pref.apps) || !pref.apps.length) return;
+
+    const isSubscribed = await checkSubscription(userId, env);
+    if (!isSubscribed) return;
+
+    let email;
+    try { email = atob(userId); } catch { return; }
+    if (!email.includes("@")) return;
+
+    const sections = [];
+    for (const appId of pref.apps) {
+      const app = DAILY_MAIL_APPS[appId];
+      if (!app) continue;
+      try {
+        sections.push({ ...await app.generate(env, { today }), icon: app.icon });
+      } catch (err) {
+        console.error(`占い生成失敗 [${appId}] (${email}): ${err.message}`);
+      }
+    }
+    if (!sections.length) return;
+
+    await sendDailyMail(env, email, today, sections);
+  } catch (err) {
+    console.error(`メール配信処理エラー (${userId}): ${err.message}`);
+  }
 }
 
 // ============================================

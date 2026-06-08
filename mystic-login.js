@@ -71,6 +71,38 @@ const MysticAuth = {
     location.href = data.url;
   },
 
+  // 毎朝の占いメール設定を取得
+  async getMailPref() {
+    const userId = this.getUserId();
+    if (!userId) throw new Error("ログインが必要です");
+
+    const res = await fetch(`${WORKER_URL}/mail-pref`, {
+      method: "GET",
+      headers: { "X-User-Id": userId },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "設定の取得に失敗しました");
+    return data.pref;
+  },
+
+  // 毎朝の占いメール設定を保存
+  async saveMailPref(pref) {
+    const userId = this.getUserId();
+    if (!userId) throw new Error("ログインが必要です");
+
+    const res = await fetch(`${WORKER_URL}/mail-pref`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": userId,
+      },
+      body: JSON.stringify(pref),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "設定の保存に失敗しました");
+    return data.pref;
+  },
+
   // 各アプリからAI APIを呼ぶ共通関数
   async callApi(endpoint, body) {
     const userId = this.getUserId();

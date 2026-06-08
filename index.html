@@ -26,6 +26,12 @@
     <div id="birthdate-status"></div>
   </div>
 
+  <div id="mailpref-panel" class="card" style="max-width:480px;margin:0 auto 1.8rem;">
+    <p style="font-size:.95rem;color:var(--text);margin:0 0 .3rem;">✉️ 毎朝の占いメール</p>
+    <p style="font-size:.82rem;color:var(--muted);margin:0 0 .9rem;">選んだ占いを、毎朝指定の時刻にメールでお届けします</p>
+    <div id="mailpref-status">読み込み中...</div>
+  </div>
+
   <div class="hub-section">▷ 星座・宿命</div>
   <div class="hub-grid">
     <a href="apps/star-reading.html" class="hub-card"><span class="hub-card-icon">⭐</span><span class="hub-card-num">①</span><span class="hub-card-label">今日の星読み</span></a>
@@ -105,7 +111,78 @@
 window.onMysticLogin = () => {
   document.getElementById("app").style.display = "block";
   renderBirthdatePanel();
+  renderMailPrefPanel();
 };
+
+const MAIL_PREF_APPS = [
+  { id: "tarot_draw",    icon: "🃏", label: "タロット一枚引き" },
+  { id: "rune_reading",  icon: "ᚱ",  label: "ルーン占い" },
+  { id: "oracle_message",icon: "🌌", label: "オラクルメッセージ" },
+  { id: "moon_journal",  icon: "📔", label: "月相ジャーナル" },
+];
+
+async function renderMailPrefPanel() {
+  const box = document.getElementById("mailpref-status");
+  box.textContent = "読み込み中...";
+
+  let pref;
+  try {
+    pref = await MysticAuth.getMailPref();
+  } catch (err) {
+    box.textContent = err.message;
+    return;
+  }
+
+  const hourOptions = Array.from({ length: 24 }, (_, h) =>
+    `<option value="${h}" ${h === pref.hour ? "selected" : ""}>${String(h).padStart(2, "0")}:00</option>`
+  ).join("");
+
+  const appCheckboxes = MAIL_PREF_APPS.map(app => `
+    <label style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;font-size:.88rem;color:var(--text);cursor:pointer;">
+      <input type="checkbox" class="mailpref-app-checkbox" value="${app.id}" ${pref.apps.includes(app.id) ? "checked" : ""}/>
+      <span>${app.icon} ${app.label}</span>
+    </label>`).join("");
+
+  box.innerHTML = `
+    <label style="display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;font-size:.9rem;color:var(--text);cursor:pointer;">
+      <input type="checkbox" id="mailpref-enabled" ${pref.enabled ? "checked" : ""}/>
+      <span>毎朝メールを受け取る</span>
+    </label>
+    <div style="margin-bottom:1rem;">
+      <p style="font-size:.78rem;color:var(--muted);letter-spacing:.08em;margin:0 0 .4rem;">届けてほしい占い</p>
+      ${appCheckboxes}
+    </div>
+    <div class="field-group" style="margin-bottom:.8rem;">
+      <label for="mailpref-hour">配信時刻（日本時間）</label>
+      <select id="mailpref-hour">${hourOptions}</select>
+    </div>
+    <button id="mailpref-save-btn" class="submit-btn">設定を保存する</button>
+    <p id="mailpref-msg" style="margin:.6rem 0 0;font-size:.8rem;"></p>
+  `;
+
+  document.getElementById("mailpref-save-btn").addEventListener("click", async () => {
+    const btn = document.getElementById("mailpref-save-btn");
+    const msg = document.getElementById("mailpref-msg");
+    const enabled = document.getElementById("mailpref-enabled").checked;
+    const hour = parseInt(document.getElementById("mailpref-hour").value, 10);
+    const apps = Array.from(document.querySelectorAll(".mailpref-app-checkbox:checked")).map(el => el.value);
+
+    btn.disabled = true;
+    btn.textContent = "保存中...";
+    msg.textContent = "";
+    try {
+      await MysticAuth.saveMailPref({ enabled, apps, hour });
+      msg.textContent = "✦ 設定を保存しました";
+      msg.style.color = "var(--accent)";
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.style.color = "#ff6b6b";
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "設定を保存する";
+    }
+  });
+}
 
 function renderBirthdatePanel() {
   const saved = localStorage.getItem("mystic_birthdate");
