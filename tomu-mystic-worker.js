@@ -31,44 +31,44 @@ export default {
         if (!isSubscribed) return jsonResponse({ error: "サブスクリプションが必要です" }, 403);
 
         // ① 〜 ③
-        if (path === "/mystic/star-reading")      return handleStarReading(request, env);
-        if (path === "/mystic/numerology")         return handleNumerology(request, env);
-        if (path === "/mystic/guardian-star")      return handleGuardianStar(request, env);
+        if (path === "/mystic/star-reading")      return await handleStarReading(request, env);
+        if (path === "/mystic/numerology")         return await handleNumerology(request, env);
+        if (path === "/mystic/guardian-star")      return await handleGuardianStar(request, env);
 
         // ④ 〜 ⑪
-        if (path === "/mystic/nine-star-ki")       return handleNineStarKi(request, env);
-        if (path === "/mystic/maya-calendar")      return handleMayaCalendar(request, env);
-        if (path === "/mystic/animal-fortune")     return handleAnimalFortune(request, env);
-        if (path === "/mystic/name-fortune")       return handleNameFortune(request, env);
-        if (path === "/mystic/biorhythm")          return handleBiorhythm(request, env);
-        if (path === "/mystic/moon-sign")          return handleMoonSign(request, env);
-        if (path === "/mystic/eastern-stars")      return handleEasternStars(request, env);
-        if (path === "/mystic/horoscope-deep")     return handleHoroscopeDeep(request, env);
+        if (path === "/mystic/nine-star-ki")       return await handleNineStarKi(request, env);
+        if (path === "/mystic/maya-calendar")      return await handleMayaCalendar(request, env);
+        if (path === "/mystic/animal-fortune")     return await handleAnimalFortune(request, env);
+        if (path === "/mystic/name-fortune")       return await handleNameFortune(request, env);
+        if (path === "/mystic/biorhythm")          return await handleBiorhythm(request, env);
+        if (path === "/mystic/moon-sign")          return await handleMoonSign(request, env);
+        if (path === "/mystic/eastern-stars")      return await handleEasternStars(request, env);
+        if (path === "/mystic/horoscope-deep")     return await handleHoroscopeDeep(request, env);
 
         // ⑫ 〜 ⑮
-        if (path === "/mystic/tarot")              return handleTarot(request, env);
-        if (path === "/mystic/rune-reading")       return handleRuneReading(request, env);
-        if (path === "/mystic/oracle-cards")       return handleOracleCards(request, env);
-        if (path === "/mystic/nine-palace")        return handleNinePalace(request, env);
+        if (path === "/mystic/tarot")              return await handleTarot(request, env);
+        if (path === "/mystic/rune-reading")       return await handleRuneReading(request, env);
+        if (path === "/mystic/oracle-cards")       return await handleOracleCards(request, env);
+        if (path === "/mystic/nine-palace")        return await handleNinePalace(request, env);
 
         // ⑯ 〜 ㉑
-        if (path === "/mystic/past-life")          return handlePastLife(request, env);
-        if (path === "/mystic/past-profession")    return handlePastProfession(request, env);
-        if (path === "/mystic/soul-mission")       return handleSoulMission(request, env);
-        if (path === "/mystic/spirit-animal")      return handleSpiritAnimal(request, env);
-        if (path === "/mystic/aura-reading")       return handleAuraReading(request, env);
-        if (path === "/mystic/chakra-check")       return handleChakraCheck(request, env);
+        if (path === "/mystic/past-life")          return await handlePastLife(request, env);
+        if (path === "/mystic/past-profession")    return await handlePastProfession(request, env);
+        if (path === "/mystic/soul-mission")       return await handleSoulMission(request, env);
+        if (path === "/mystic/spirit-animal")      return await handleSpiritAnimal(request, env);
+        if (path === "/mystic/aura-reading")       return await handleAuraReading(request, env);
+        if (path === "/mystic/chakra-check")       return await handleChakraCheck(request, env);
 
         // ㉒ 〜 ㉚
-        if (path === "/mystic/oracle-message")     return handleOracleMessage(request, env);
-        if (path === "/mystic/dream-decoder")      return handleDreamDecoder(request, env);
-        if (path === "/mystic/soul-compatibility") return handleSoulCompatibility(request, env);
-        if (path === "/mystic/dream-colors")       return handleDreamColors(request, env);
-        if (path === "/mystic/moon-journal")       return handleMoonJournal(request, env);
-        if (path === "/mystic/cosmic-message")     return handleCosmicMessage(request, env);
-        if (path === "/mystic/lucky-color")        return handleLuckyColor(request, env);
-        if (path === "/mystic/crystal-guide")      return handleCrystalGuide(request, env);
-        if (path === "/mystic/palm-reading")       return handlePalmReading(request, env);
+        if (path === "/mystic/oracle-message")     return await handleOracleMessage(request, env);
+        if (path === "/mystic/dream-decoder")      return await handleDreamDecoder(request, env);
+        if (path === "/mystic/soul-compatibility") return await handleSoulCompatibility(request, env);
+        if (path === "/mystic/dream-colors")       return await handleDreamColors(request, env);
+        if (path === "/mystic/moon-journal")       return await handleMoonJournal(request, env);
+        if (path === "/mystic/cosmic-message")     return await handleCosmicMessage(request, env);
+        if (path === "/mystic/lucky-color")        return await handleLuckyColor(request, env);
+        if (path === "/mystic/crystal-guide")      return await handleCrystalGuide(request, env);
+        if (path === "/mystic/palm-reading")       return await handlePalmReading(request, env);
 
         return jsonResponse({ error: "Not Found" }, 404);
       }
@@ -89,47 +89,47 @@ export default {
         });
 
         switch (action) {
-          case "star-reading":      return handleStarReading(makeReq(), env);
-          case "numerology":        return handleNumerology(makeReq(), env);
-          case "guardian-star":     return handleGuardianStar(makeReq(), env);
-          case "nine-star-ki":      return handleNineStarKi(makeReq(), env);
-          case "maya-calendar":     return handleMayaCalendar(makeReq(), env);
-          case "animal-fortune":    return handleAnimalFortune(makeReq(), env);
-          case "name-fortune":      return handleNameFortune(makeReq(), env);
-          case "biorhythm":         return handleBiorhythm(makeReq(), env);
-          case "moon-sign":         return handleMoonSign(makeReq(), env);
-          case "eastern-stars":     return handleEasternStars(makeReq(), env);
-          case "horoscope-deep":    return handleHoroscopeDeep(makeReq(), env);
-          case "tarot":             return handleTarot(makeReq(), env);
-          case "rune-reading":      return handleRuneReading(makeReq(), env);
-          case "oracle-cards":      return handleOracleCards(makeReq(), env);
-          case "nine-palace":       return handleNinePalace(makeReq(), env);
-          case "past-life":         return handlePastLife(makeReq(), env);
-          case "past-profession":   return handlePastProfession(makeReq(), env);
-          case "soul-mission":      return handleSoulMission(makeReq(), env);
-          case "spirit-animal":     return handleSpiritAnimal(makeReq(), env);
-          case "aura-reading":      return handleAuraReading(makeReq(), env);
-          case "chakra-check":      return handleChakraCheck(makeReq(), env);
-          case "oracle-message":    return handleOracleMessage(makeReq(), env);
-          case "dream-decoder":     return handleDreamDecoder(makeReq(), env);
-          case "soul-compatibility":return handleSoulCompatibility(makeReq(), env);
-          case "dream-colors":      return handleDreamColors(makeReq(), env);
-          case "moon-journal":      return handleMoonJournal(makeReq(), env);
-          case "cosmic-message":    return handleCosmicMessage(makeReq(), env);
-          case "lucky-color":       return handleLuckyColor(makeReq(), env);
-          case "crystal-guide":     return handleCrystalGuide(makeReq(), env);
-          case "palm-reading":      return handlePalmReading(makeReq(), env);
+          case "star-reading":      return await handleStarReading(makeReq(), env);
+          case "numerology":        return await handleNumerology(makeReq(), env);
+          case "guardian-star":     return await handleGuardianStar(makeReq(), env);
+          case "nine-star-ki":      return await handleNineStarKi(makeReq(), env);
+          case "maya-calendar":     return await handleMayaCalendar(makeReq(), env);
+          case "animal-fortune":    return await handleAnimalFortune(makeReq(), env);
+          case "name-fortune":      return await handleNameFortune(makeReq(), env);
+          case "biorhythm":         return await handleBiorhythm(makeReq(), env);
+          case "moon-sign":         return await handleMoonSign(makeReq(), env);
+          case "eastern-stars":     return await handleEasternStars(makeReq(), env);
+          case "horoscope-deep":    return await handleHoroscopeDeep(makeReq(), env);
+          case "tarot":             return await handleTarot(makeReq(), env);
+          case "rune-reading":      return await handleRuneReading(makeReq(), env);
+          case "oracle-cards":      return await handleOracleCards(makeReq(), env);
+          case "nine-palace":       return await handleNinePalace(makeReq(), env);
+          case "past-life":         return await handlePastLife(makeReq(), env);
+          case "past-profession":   return await handlePastProfession(makeReq(), env);
+          case "soul-mission":      return await handleSoulMission(makeReq(), env);
+          case "spirit-animal":     return await handleSpiritAnimal(makeReq(), env);
+          case "aura-reading":      return await handleAuraReading(makeReq(), env);
+          case "chakra-check":      return await handleChakraCheck(makeReq(), env);
+          case "oracle-message":    return await handleOracleMessage(makeReq(), env);
+          case "dream-decoder":     return await handleDreamDecoder(makeReq(), env);
+          case "soul-compatibility":return await handleSoulCompatibility(makeReq(), env);
+          case "dream-colors":      return await handleDreamColors(makeReq(), env);
+          case "moon-journal":      return await handleMoonJournal(makeReq(), env);
+          case "cosmic-message":    return await handleCosmicMessage(makeReq(), env);
+          case "lucky-color":       return await handleLuckyColor(makeReq(), env);
+          case "crystal-guide":     return await handleCrystalGuide(makeReq(), env);
+          case "palm-reading":      return await handlePalmReading(makeReq(), env);
           default:                  return jsonResponse({ error: "Unknown action" }, 404);
         }
       }
 
-      if (path === "/subscription/check")    return handleSubscriptionCheck(request, env);
-      if (path === "/subscription/register") return handleSubscriptionRegister(request, env);
-      if (path === "/mail-pref")              return handleMailPref(request, env);
-      if (path === "/stripe/checkout")       return handleStripeCheckout(request, env);
-      if (path === "/webhook")               return handleStripeWebhook(request, env);
+      if (path === "/subscription/check")    return await handleSubscriptionCheck(request, env);
+      if (path === "/subscription/register") return await handleSubscriptionRegister(request, env);
+      if (path === "/mail-pref")              return await handleMailPref(request, env);
+      if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
+      if (path === "/webhook")               return await handleStripeWebhook(request, env);
 
-      if (path === "/mcp")                   return handleMcp(request, env);
+      if (path === "/mcp")                   return await handleMcp(request, env);
 
       if (path === "/legal/tokushoho")       return htmlResponse(MYSTIC_TOKUSHOHO_HTML);
       if (path === "/legal/privacy")         return htmlResponse(MYSTIC_PRIVACY_HTML);
