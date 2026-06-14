@@ -113,6 +113,38 @@ function validateMysticBody(action, body) {
   return true;
 }
 
+// ============================================
+// レートリミット（KVベース）
+// キー: rate:{type}:{identifier}:{YYYY-MM-DD-HH}（UTC時）、expirationTtl=3600で自動失効。
+// 超過時は false を返す。KVアクセス失敗時は true（可用性優先で通過）。
+// MYSTIC_SUBSCRIPTIONS KV を流用。
+// ============================================
+
+const RATE_LIMITS = {
+  magic: 5,     // /auth/request-magic-link : メアドあたり 5回/時
+  ai: 20,       // /api/mystic・/mystic/*    : ユーザーあたり 20回/時
+  mailpref: 10, // /mail-pref POST           : ユーザーあたり 10回/時
+};
+
+function rateBucket(date = new Date()) {
+  // "2026-06-15T07:23:45.000Z" → "2026-06-15-07"
+  return date.toISOString().slice(0, 13).replace("T", "-");
+}
+
+async function checkRateLimit(env, type, identifier) {
+  const limit = RATE_LIMITS[type];
+  if (!limit || !identifier) return true; // 未定義タイプ/識別子なしは制限しない
+  const key = `rate:${type}:${identifier}:${rateBucket()}`;
+  try {
+    const current = parseInt(await env.MYSTIC_SUBSCRIPTIONS.get(key), 10) || 0;
+    if (current >= limit) return false;
+    await env.MYSTIC_SUBSCRIPTIONS.put(key, String(current + 1), { expirationTtl: 3600 });
+    return true;
+  } catch {
+    return true; // KV障害時は通過（可用性優先）
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
@@ -155,6 +187,11 @@ export default {
         try { mysticBody = await request.clone().json(); } catch { mysticBody = {}; }
         if (!validateMysticBody(mysticAction, mysticBody)) {
           return jsonResponse({ error: "Invalid input" }, 400);
+        }
+
+        // レートリミット（AI呼び出し: ユーザーあたり 20回/時）
+        if (!await checkRateLimit(env, "ai", userId)) {
+          return jsonResponse({ error: "Too many requests" }, 429);
         }
 
         // ① 〜 ③
@@ -211,6 +248,7 @@ export default {
         const { action, ...rest } = body;
         if (!ALLOWED_ACTIONS.has(action)) return jsonResponse({ error: "Invalid input" }, 400);
         if (!validateMysticBody(action, rest)) return jsonResponse({ error: "Invalid input" }, 400);
+        if (!await checkRateLimit(env, "ai", userId)) return jsonResponse({ error: "Too many requests" }, 429);
         const makeReq = () => new Request(request.url, {
           method: "POST",
           headers: request.headers,
@@ -441,6 +479,10 @@ async function handleRequestMagicLink(request, env) {
   if (!validateInput("email", email)) {
     return jsonResponse({ error: "Invalid input" }, 400);
   }
+  // レートリミット（メアドあたり 5回/時）— メール送信前に確認
+  if (!await checkRateLimit(env, "magic", email)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
   const redirect = sanitizeRedirect(body.redirect);
   const token = await createMagicToken(env, email, redirect);
   const link = `${new URL(request.url).origin}/auth/verify?token=${encodeURIComponent(token)}`;
@@ -582,6 +624,10 @@ async function handleMailPref(request, env) {
     if (!validateInput("hour", body.hour)) return jsonResponse({ error: "Invalid input" }, 400);
     if (!Array.isArray(body.apps) || !body.apps.every(id => validateInput("appId", id))) {
       return jsonResponse({ error: "Invalid input" }, 400);
+    }
+    // レートリミット（ユーザーあたり 10回/時）
+    if (!await checkRateLimit(env, "mailpref", userId)) {
+      return jsonResponse({ error: "Too many requests" }, 429);
     }
     const pref = { enabled: body.enabled, apps: body.apps, hour: body.hour };
     await env.MYSTIC_SUBSCRIPTIONS.put(MAIL_PREF_PREFIX + userId, JSON.stringify(pref));
