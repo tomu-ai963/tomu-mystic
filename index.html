@@ -125,12 +125,14 @@ async function renderMailPrefPanel() {
   const box = document.getElementById("mailpref-status");
   box.textContent = "読み込み中...";
 
+  // 取得に失敗してもデフォルト値でUIは必ず表示する（ログイン時は設定欄を出す）
   let pref;
+  let loadError = "";
   try {
     pref = await MysticAuth.getMailPref();
   } catch (err) {
-    box.textContent = err.message;
-    return;
+    pref = { enabled: false, apps: [], hour: 7 };
+    loadError = err.message || "設定の取得に失敗しました";
   }
 
   const hourOptions = Array.from({ length: 24 }, (_, h) =>
@@ -157,7 +159,7 @@ async function renderMailPrefPanel() {
       <select id="mailpref-hour">${hourOptions}</select>
     </div>
     <button id="mailpref-save-btn" class="submit-btn">設定を保存する</button>
-    <p id="mailpref-msg" style="margin:.6rem 0 0;font-size:.8rem;"></p>
+    <p id="mailpref-msg" style="margin:.6rem 0 0;font-size:.8rem;">${loadError ? `<span style="color:#ff6b6b;">現在の設定を読み込めませんでした（${loadError}）。保存すると上書きされます。</span>` : ""}</p>
   `;
 
   document.getElementById("mailpref-save-btn").addEventListener("click", async () => {

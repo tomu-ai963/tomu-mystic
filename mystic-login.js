@@ -7,6 +7,23 @@
 
 const WORKER_URL = "https://mystic-system-worker.inverted-triangle-leef.workers.dev";
 
+// 旧Service Workerの自己修復。
+// 過去の sw.js は外部Worker APIへのクロスオリジン呼び出しをインターセプトしており、
+// 旧SWに制御され続けるクライアントでは認証付きAPIが 401 / Failed to fetch になる。
+// 新SW(v2: クロスオリジン素通り + skipWaiting + clients.claim)へ即座に更新し、
+// 制御が切り替わったタイミングで一度だけリロードして確実に新SWへ移行させる。
+if ("serviceWorker" in navigator) {
+  let _swRefreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (_swRefreshing) return;
+    _swRefreshing = true;
+    location.reload();
+  });
+  navigator.serviceWorker.getRegistration()
+    .then((reg) => { if (reg) reg.update(); })
+    .catch(() => {});
+}
+
 const MysticAuth = {
   SESSION_KEY: "mystic_session",
   SUBSCRIPTION_KEY: "mystic_subscription",
