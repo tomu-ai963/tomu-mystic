@@ -12,7 +12,16 @@ const CORS_HEADERS = {
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
-      return new Response(null, { headers: CORS_HEADERS });
+      // プリフライト: クライアントが要求したヘッダーをそのまま許可（移行期の旧ヘッダーにも耐性）
+      const reqHeaders = request.headers.get("Access-Control-Request-Headers");
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ...CORS_HEADERS,
+          ...(reqHeaders ? { "Access-Control-Allow-Headers": reqHeaders } : {}),
+          "Access-Control-Max-Age": "86400",
+        },
+      });
     }
 
     const url = new URL(request.url);
