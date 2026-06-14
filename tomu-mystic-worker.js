@@ -124,7 +124,12 @@ export default {
       }
 
       if (path === "/subscription/check")    return await handleSubscriptionCheck(request, env);
-      if (path === "/subscription/register") return await handleSubscriptionRegister(request, env);
+      if (path === "/subscription/register") {
+        if (request.headers.get("X-Admin-Token") !== env.ADMIN_TOKEN) {
+          return jsonResponse({ error: "Forbidden" }, 403);
+        }
+        return await handleSubscriptionRegister(request, env);
+      }
       if (path === "/mail-pref")              return await handleMailPref(request, env);
       if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
       if (path === "/webhook")               return await handleStripeWebhook(request, env);
@@ -137,7 +142,8 @@ export default {
       return jsonResponse({ error: "Not Found" }, 404);
 
     } catch (err) {
-      return jsonResponse({ error: "サーバーエラー: " + err.message }, 500);
+      console.error("Unhandled error:", err && (err.stack || err.message));
+      return jsonResponse({ error: "占いの取得に失敗しました。時間をおいて再度お試しください。" }, 500);
     }
   },
 
@@ -265,10 +271,12 @@ async function handleStripeWebhook(request, env) {
   const signature = request.headers.get("stripe-signature");
   const body = await request.text();
 
-  if (env.STRIPE_WEBHOOK_SECRET) {
-    const valid = await verifyStripeSignature(body, signature, env.STRIPE_WEBHOOK_SECRET);
-    if (!valid) return jsonResponse({ error: "署名が無効です" }, 400);
+  if (!env.STRIPE_WEBHOOK_SECRET) {
+    console.error("STRIPE_WEBHOOK_SECRET が未設定のため Webhook を拒否しました");
+    return jsonResponse({ error: "Webhook が正しく設定されていません" }, 500);
   }
+  const valid = await verifyStripeSignature(body, signature, env.STRIPE_WEBHOOK_SECRET);
+  if (!valid) return jsonResponse({ error: "署名が無効です" }, 400);
 
   const event = JSON.parse(body);
 
@@ -1778,6 +1786,11 @@ const TAROT_CARDS = [
 ];
 
 async function handleMcp(request, env) {
+  // MCP_TOKEN が未設定の場合は認証スキップせず拒否（誤設定によるAPI無料垂れ流しを防止）
+  if (!env.MCP_TOKEN) {
+    return mcpError(null, -32001, "Unauthorized", 401);
+  }
+
   // Streamable HTTP: GET リクエストにはサーバー情報を返す
   if (request.method === "GET") {
     return new Response(JSON.stringify({
@@ -1792,16 +1805,14 @@ async function handleMcp(request, env) {
     });
   }
 
-  // MCP_TOKEN が設定されている場合のみ認証チェック
-  if (env.MCP_TOKEN) {
-    const url = new URL(request.url);
-    const token =
-      url.searchParams.get("token") ??
-      request.headers.get("X-MCP-Token") ??
-      (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
-    if (token !== env.MCP_TOKEN) {
-      return mcpError(null, -32001, "Unauthorized");
-    }
+  // トークン照合（未設定ケースは上で401済み）
+  const url = new URL(request.url);
+  const token =
+    url.searchParams.get("token") ??
+    request.headers.get("X-MCP-Token") ??
+    (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  if (token !== env.MCP_TOKEN) {
+    return mcpError(null, -32001, "Unauthorized", 401);
   }
 
   let body;
@@ -2264,7 +2275,8 @@ async function handleMcpToolCall(id, params, env) {
       content: [{ type: "text", text }],
     });
   } catch (err) {
-    return mcpError(id, -32603, `Tool execution error: ${err.message}`);
+    console.error("MCP tool execution error:", err && (err.stack || err.message));
+    return mcpError(id, -32603, "占いの取得に失敗しました。時間をおいて再度お試しください。");
   }
 }
 
@@ -2274,9 +2286,9 @@ function mcpResponse(id, result) {
   });
 }
 
-function mcpError(id, code, message) {
+function mcpError(id, code, message, httpStatus = 200) {
   return new Response(
     JSON.stringify({ jsonrpc: "2.0", id: id ?? null, error: { code, message } }),
-    { headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
+    { status: httpStatus, headers: { "Content-Type": "application/json", ...CORS_HEADERS } }
   );
 }
