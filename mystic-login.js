@@ -1,133 +1,158 @@
 // ============================================
-// とむMYSTIC — mystic-login.js（Stripe連携版）
+// とむMYSTIC — mystic-login.js（マジックリンク認証版）
+// フロント=github.io / API=workers.dev のクロスサイト構成のため、
+// HttpOnly Cookie ではなく sessionId を localStorage に保持し
+// Authorization: Bearer で伝送する。
 // ============================================
 
 const WORKER_URL = "https://mystic-system-worker.inverted-triangle-leef.workers.dev";
 
 const MysticAuth = {
-  USER_ID_KEY: "mystic_user_id",
+  SESSION_KEY: "mystic_session",
   SUBSCRIPTION_KEY: "mystic_subscription",
 
-  getUserId() {
-    return localStorage.getItem(this.USER_ID_KEY);
-  },
-
-  async login(email) {
-    if (!email || !email.includes("@")) {
-      throw new Error("有効なメールアドレスを入力してください");
-    }
-    const userId = btoa(email.toLowerCase().trim());
-    localStorage.setItem(this.USER_ID_KEY, userId);
-
-    const subscribed = await this.checkSubscription(userId);
-    localStorage.setItem(this.SUBSCRIPTION_KEY, subscribed ? "active" : "inactive");
-    return { userId, subscribed };
-  },
-
-  logout() {
-    localStorage.removeItem(this.USER_ID_KEY);
-    localStorage.removeItem(this.SUBSCRIPTION_KEY);
-  },
-
-  async checkSubscription(userId) {
-    try {
-      const res = await fetch(`${WORKER_URL}/subscription/check`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data = await res.json();
-      return data.subscribed === true;
-    } catch {
-      return false;
-    }
+  getSession() {
+    return localStorage.getItem(this.SESSION_KEY);
   },
 
   isLoggedIn() {
-    return !!this.getUserId();
+    return !!this.getSession();
   },
 
   isSubscribed() {
     return localStorage.getItem(this.SUBSCRIPTION_KEY) === "active";
   },
 
-  // Stripe Checkoutページへリダイレクト
-  async startCheckout() {
-    const userId = this.getUserId();
-    if (!userId) throw new Error("ログインが必要です");
+  authHeaders(extra = {}) {
+    const sid = this.getSession();
+    return sid ? { ...extra, "Authorization": `Bearer ${sid}` } : { ...extra };
+  },
 
-    const res = await fetch(`${WORKER_URL}/stripe/checkout`, {
+  // /auth/verify からのリダイレクト着地：#mystic_sid=... を取り込む
+  captureSessionFromUrl() {
+    const m = location.hash.match(/[#&]mystic_sid=([^&]+)/);
+    if (!m) return false;
+    const sid = decodeURIComponent(m[1]);
+    localStorage.setItem(this.SESSION_KEY, sid);
+    history.replaceState({}, "", location.pathname + location.search);
+    return true;
+  },
+
+  // マジックリンクの送信を要求（この時点ではまだログインしていない）
+  async requestMagicLink(email) {
+    if (!email || !email.includes("@")) {
+      throw new Error("有効なメールアドレスを入力してください");
+    }
+    const res = await fetch(`${WORKER_URL}/auth/request-magic-link`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        userId,
-        successUrl: `${location.origin}/mystic/?checkout=success`,
-        cancelUrl:  `${location.origin}/mystic/?checkout=cancel`,
+        email: email.toLowerCase().trim(),
+        redirect: location.href.split("#")[0],
       }),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "メールの送信に失敗しました");
+    return true;
+  },
 
-    const data = await res.json();
+  // サーバーでセッションを検証し、サブスク状態を取得・キャッシュ
+  async refreshMe() {
+    const sid = this.getSession();
+    if (!sid) return { loggedIn: false, subscribed: false };
+    let res;
+    try {
+      res = await fetch(`${WORKER_URL}/auth/me`, { headers: this.authHeaders() });
+    } catch {
+      return { loggedIn: true, subscribed: this.isSubscribed() };
+    }
+    if (res.status === 401) {
+      this.logout();
+      return { loggedIn: false, subscribed: false };
+    }
+    const data = await res.json().catch(() => ({}));
+    const subscribed = data.subscribed === true;
+    localStorage.setItem(this.SUBSCRIPTION_KEY, subscribed ? "active" : "inactive");
+    return { loggedIn: true, subscribed, email: data.email };
+  },
+
+  async logout() {
+    const sid = this.getSession();
+    if (sid) {
+      try {
+        await fetch(`${WORKER_URL}/auth/logout`, { method: "POST", headers: this.authHeaders() });
+      } catch { /* ignore */ }
+    }
+    localStorage.removeItem(this.SESSION_KEY);
+    localStorage.removeItem(this.SUBSCRIPTION_KEY);
+  },
+
+  // Stripe Checkoutページへリダイレクト
+  async startCheckout() {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/stripe/checkout`, {
+      method: "POST",
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({
+        successUrl: `${location.origin}${location.pathname}?checkout=success`,
+        cancelUrl:  `${location.origin}${location.pathname}?checkout=cancel`,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.url) throw new Error(data.error || "決済ページの取得に失敗しました");
     location.href = data.url;
   },
 
   // 毎朝の占いメール設定を取得
   async getMailPref() {
-    const userId = this.getUserId();
-    if (!userId) throw new Error("ログインが必要です");
-
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
     const res = await fetch(`${WORKER_URL}/mail-pref`, {
       method: "GET",
-      headers: { "X-User-Id": userId },
+      headers: this.authHeaders(),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "設定の取得に失敗しました");
     return data.pref;
   },
 
   // 毎朝の占いメール設定を保存
   async saveMailPref(pref) {
-    const userId = this.getUserId();
-    if (!userId) throw new Error("ログインが必要です");
-
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
     const res = await fetch(`${WORKER_URL}/mail-pref`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-Id": userId,
-      },
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(pref),
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "設定の保存に失敗しました");
     return data.pref;
   },
 
   // 各アプリからAI APIを呼ぶ共通関数
   async callApi(endpoint, body) {
-    const userId = this.getUserId();
-    if (!userId) throw new Error("ログインが必要です");
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
 
     // /mystic/star-reading → action: "star-reading"
     const action = endpoint.replace(/^\/mystic\//, "");
 
     const res = await fetch(`${WORKER_URL}/api/mystic`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-Id": userId,
-      },
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ action, ...body }),
     });
 
-    const data = await res.json();
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "APIエラーが発生しました");
     return data;
   },
 };
 
 // ============================================
-// ログインUI
+// ログインUI（メールアドレス入力 → マジックリンク送信）
 // ============================================
 
 function renderLoginModal() {
@@ -140,7 +165,7 @@ function renderLoginModal() {
       <div class="mystic-modal-box">
         <div class="mystic-modal-star">✦</div>
         <h2 class="mystic-modal-title">とむMYSTIC</h2>
-        <p class="mystic-modal-subtitle">星の導きへ、メールアドレスで入場</p>
+        <p class="mystic-modal-subtitle">星の導きへ、メールアドレスでログイン</p>
         <input
           id="mystic-email-input"
           type="email"
@@ -149,11 +174,11 @@ function renderLoginModal() {
           autocomplete="email"
         />
         <button id="mystic-login-btn" class="mystic-modal-btn">
-          星の扉を開く
+          ログインリンクを送る
         </button>
         <p id="mystic-login-error" class="mystic-modal-error"></p>
         <p class="mystic-modal-note">
-          ※ メールアドレスはユーザーIDとして使用されます
+          ※ ご入力のアドレスにログイン用リンクをお送りします
         </p>
       </div>
     </div>
@@ -173,22 +198,30 @@ async function handleLoginClick() {
 
   errorEl.textContent = "";
   btn.disabled = true;
-  btn.textContent = "確認中...";
+  btn.textContent = "送信中...";
 
   try {
-    const { subscribed } = await MysticAuth.login(email);
-    document.getElementById("mystic-login-modal").remove();
-
-    if (!subscribed) {
-      renderSubscriptionModal();
-    } else {
-      onLoginSuccess();
-    }
+    await MysticAuth.requestMagicLink(email);
+    showMagicLinkSent(email);
   } catch (err) {
     errorEl.textContent = err.message;
     btn.disabled = false;
-    btn.textContent = "星の扉を開く";
+    btn.textContent = "ログインリンクを送る";
   }
+}
+
+function showMagicLinkSent(email) {
+  const box = document.querySelector("#mystic-login-modal .mystic-modal-box");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="mystic-modal-star">✉</div>
+    <h2 class="mystic-modal-title">メールを確認してください</h2>
+    <p class="mystic-modal-subtitle">${email} にログインリンクを送信しました。</p>
+    <p class="mystic-modal-note">
+      メール内のボタンから15分以内にログインしてください。<br/>
+      届かない場合は迷惑メールフォルダもご確認ください。
+    </p>
+  `;
 }
 
 // ============================================
@@ -252,20 +285,15 @@ async function handleCheckoutReturn() {
   if (!status) return false;
 
   // URLからパラメータを除去
-  const cleanUrl = location.pathname;
-  history.replaceState({}, "", cleanUrl);
+  history.replaceState({}, "", location.pathname);
 
   if (status === "success") {
     // Webhookの処理を待つため少し待機してから再確認
     await new Promise((r) => setTimeout(r, 2000));
-    const userId = MysticAuth.getUserId();
-    if (userId) {
-      const subscribed = await MysticAuth.checkSubscription(userId);
-      if (subscribed) {
-        localStorage.setItem("mystic_subscription", "active");
-        onLoginSuccess();
-        return true;
-      }
+    const me = await MysticAuth.refreshMe();
+    if (me.subscribed) {
+      onLoginSuccess();
+      return true;
     }
     // まだWebhookが来ていない場合のメッセージ
     showToast("決済を確認中です。少し経ってから再度ページを開いてください。");
@@ -317,6 +345,9 @@ function onLoginSuccess() {
 // ============================================
 
 document.addEventListener("DOMContentLoaded", async () => {
+  // /auth/verify からの着地：#mystic_sid を取り込む
+  MysticAuth.captureSessionFromUrl();
+
   // Checkout戻り判定（successまたはcancel）
   if (MysticAuth.isLoggedIn()) {
     const handled = await handleCheckoutReturn();
@@ -328,6 +359,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
+  // セッションをサーバーで検証し、サブスク状態を取得
+  const me = await MysticAuth.refreshMe();
+  if (!me.loggedIn) {
+    renderLoginModal();
+    return;
+  }
+
   // index.html: ログイン済みならサブスク確認なしでアプリ一覧を表示
   if (window.MYSTIC_IS_INDEX) {
     onLoginSuccess();
@@ -335,11 +373,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // 各アプリ: サブスク確認してから表示
-  const userId = MysticAuth.getUserId();
-  const subscribed = await MysticAuth.checkSubscription(userId);
-  localStorage.setItem("mystic_subscription", subscribed ? "active" : "inactive");
-
-  if (!subscribed) {
+  if (!me.subscribed) {
     renderSubscriptionModal();
   } else {
     onLoginSuccess();
