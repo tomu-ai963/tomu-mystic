@@ -9,6 +9,110 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-MCP-Token, X-Admin-Token",
 };
 
+// ============================================
+// 入力バリデーション
+// 失敗時は 400 { error: "Invalid input" } を返し、詳細理由は開示しない。
+// ============================================
+
+// /api/mystic で受理する action（appId）の許可リスト
+const ALLOWED_ACTIONS = new Set([
+  "star-reading", "numerology", "guardian-star", "nine-star-ki", "maya-calendar",
+  "animal-fortune", "name-fortune", "biorhythm", "moon-sign", "eastern-stars",
+  "horoscope-deep", "tarot", "rune-reading", "oracle-cards", "nine-palace",
+  "past-life", "past-profession", "soul-mission", "spirit-animal", "aura-reading",
+  "chakra-check", "oracle-message", "dream-decoder", "soul-compatibility", "dream-colors",
+  "moon-journal", "cosmic-message", "lucky-color", "crystal-guide", "palm-reading",
+]);
+
+// action ごとの「必須かつ空文字NGのテキスト項目」
+const REQUIRED_TEXT_FIELDS = {
+  "animal-fortune": ["animal"],
+  "name-fortune": ["fullName"],
+  "tarot": ["card"],
+  "rune-reading": ["rune"],
+  "oracle-cards": ["theme", "card"],
+  "oracle-message": ["feeling"],
+  "dream-decoder": ["dream"],
+  "crystal-guide": ["currentState"],
+};
+
+const MAX_TEXT_LEN = 1000;
+
+// 共通バリデーション関数。type に応じて値の妥当性を真偽で返す。
+function validateInput(type, value) {
+  switch (type) {
+    case "birthdate": {
+      if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const [y, m, d] = value.split("-").map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      // 実在日チェック（例: 2021-02-31 を弾く）
+      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() + 1 !== m || dt.getUTCDate() !== d) return false;
+      const t = dt.getTime();
+      const min = Date.UTC(1900, 0, 1);
+      // 未来日付はNG（今日以前のみ許可）
+      return t >= min && t <= Date.now();
+    }
+    case "email":
+      return typeof value === "string"
+        && value.length > 0
+        && value.length <= 254
+        && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    case "hour":
+      return Number.isInteger(value) && value >= 0 && value <= 23;
+    case "bool":
+      return typeof value === "boolean";
+    case "text":
+      return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_TEXT_LEN;
+    case "appId": // 毎朝メールの占いID
+      return typeof value === "string"
+        && Object.prototype.hasOwnProperty.call(DAILY_MAIL_APPS, value);
+    default:
+      return false;
+  }
+}
+
+// 占いリクエスト（/api/mystic・/mystic/*）のボディ検証
+function validateMysticBody(action, body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return false;
+
+  // すべての文字列フィールドは MAX_TEXT_LEN 以内（手相の画像データ imageBase64 は除外）
+  for (const [key, v] of Object.entries(body)) {
+    if (key === "imageBase64") continue;
+    if (typeof v === "string" && v.length > MAX_TEXT_LEN) return false;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        if (typeof item === "string" && item.length > MAX_TEXT_LEN) return false;
+      }
+    }
+  }
+
+  // 生年月日（存在する場合のみ・未来日／不正形式NG）
+  for (const key of ["birthdate", "birthdate1", "birthdate2"]) {
+    if (body[key] !== undefined && !validateInput("birthdate", body[key])) return false;
+  }
+
+  // 必須テキスト（空文字NG・1000文字以上NG）
+  const requiredText = REQUIRED_TEXT_FIELDS[action];
+  if (requiredText) {
+    for (const field of requiredText) {
+      if (!validateInput("text", body[field])) return false;
+    }
+  }
+
+  // 夢の色彩：colors は非空の文字列配列
+  if (action === "dream-colors") {
+    if (!Array.isArray(body.colors) || body.colors.length === 0) return false;
+    if (!body.colors.every(c => validateInput("text", c))) return false;
+  }
+
+  // 手相：画像データ必須
+  if (action === "palm-reading") {
+    if (typeof body.imageBase64 !== "string" || body.imageBase64.length === 0) return false;
+  }
+
+  return true;
+}
+
 export default {
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
@@ -44,6 +148,14 @@ export default {
 
         const isSubscribed = await checkSubscription(userId, env);
         if (!isSubscribed) return jsonResponse({ error: "サブスクリプションが必要です" }, 403);
+
+        // 入力バリデーション（ハンドラ本体はオリジナルのbodyを再読込するためcloneで検証）
+        const mysticAction = path.slice("/mystic/".length);
+        let mysticBody;
+        try { mysticBody = await request.clone().json(); } catch { mysticBody = {}; }
+        if (!validateMysticBody(mysticAction, mysticBody)) {
+          return jsonResponse({ error: "Invalid input" }, 400);
+        }
 
         // ① 〜 ③
         if (path === "/mystic/star-reading")      return await handleStarReading(request, env);
@@ -97,6 +209,8 @@ export default {
 
         const body = await request.json();
         const { action, ...rest } = body;
+        if (!ALLOWED_ACTIONS.has(action)) return jsonResponse({ error: "Invalid input" }, 400);
+        if (!validateMysticBody(action, rest)) return jsonResponse({ error: "Invalid input" }, 400);
         const makeReq = () => new Request(request.url, {
           method: "POST",
           headers: request.headers,
@@ -324,8 +438,8 @@ async function handleRequestMagicLink(request, env) {
   }
   const body = await request.json().catch(() => ({}));
   const email = typeof body.email === "string" ? body.email.toLowerCase().trim() : "";
-  if (!email || !email.includes("@")) {
-    return jsonResponse({ error: "有効なメールアドレスを入力してください" }, 400);
+  if (!validateInput("email", email)) {
+    return jsonResponse({ error: "Invalid input" }, 400);
   }
   const redirect = sanitizeRedirect(body.redirect);
   const token = await createMagicToken(env, email, redirect);
@@ -463,13 +577,13 @@ async function handleMailPref(request, env) {
 
   if (request.method === "POST") {
     const body = await request.json().catch(() => ({}));
-    const apps = Array.isArray(body.apps)
-      ? body.apps.filter(id => Object.prototype.hasOwnProperty.call(DAILY_MAIL_APPS, id))
-      : [];
-    const hour = Number.isInteger(body.hour) && body.hour >= 0 && body.hour <= 23
-      ? body.hour
-      : DEFAULT_MAIL_PREF.hour;
-    const pref = { enabled: body.enabled === true, apps, hour };
+    // バリデーション: enabled=boolean / hour=0〜23整数 / apps=許可IDの配列
+    if (!validateInput("bool", body.enabled)) return jsonResponse({ error: "Invalid input" }, 400);
+    if (!validateInput("hour", body.hour)) return jsonResponse({ error: "Invalid input" }, 400);
+    if (!Array.isArray(body.apps) || !body.apps.every(id => validateInput("appId", id))) {
+      return jsonResponse({ error: "Invalid input" }, 400);
+    }
+    const pref = { enabled: body.enabled, apps: body.apps, hour: body.hour };
     await env.MYSTIC_SUBSCRIPTIONS.put(MAIL_PREF_PREFIX + userId, JSON.stringify(pref));
     return jsonResponse({ success: true, pref });
   }
