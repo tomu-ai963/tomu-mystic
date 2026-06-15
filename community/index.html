@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="description" content="とむMYSTIC コミュニティ — みんなの占い結果をシェアしよう。"/>
+  <title>みんなの占い結果 ｜ とむMYSTIC コミュニティ</title>
+  <link rel="stylesheet" href="../mystic.css"/>
+  <style>
+    /* ── コミュニティ専用スタイル（とむMYSTICトークンを継承） ── */
+    .cm-nav {
+      position: sticky; top: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: .9rem 1.25rem;
+      background: rgba(5,5,15,.82);
+      backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+    }
+    .cm-logo { font-size: 1.1rem; color: var(--text); text-decoration: none; letter-spacing: .06em; }
+    .cm-logo span { color: var(--accent); }
+    .cm-back { font-size: .82rem; color: var(--muted); text-decoration: none; transition: color .2s; }
+    .cm-back:hover { color: var(--accent); }
+
+    .cm-header { text-align: center; padding: 2.5rem 1.25rem 1.5rem; }
+    .cm-title { font-size: clamp(1.8rem, 5vw, 2.6rem); color: var(--text); margin: 0 0 .4rem; letter-spacing: .04em; }
+    .cm-subtitle { font-size: .88rem; color: var(--muted); margin: 0; }
+
+    .cm-wrap { max-width: 680px; margin: 0 auto; padding: 0 1.25rem 6rem; }
+
+    /* スピナー */
+    .cm-spinner-wrap { display: flex; justify-content: center; padding: 3rem 0; }
+    .cm-spinner {
+      width: 30px; height: 30px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: cm-spin .75s linear infinite;
+    }
+    @keyframes cm-spin { to { transform: rotate(360deg); } }
+
+    /* 空状態 */
+    .cm-empty { text-align: center; padding: 3.5rem 1rem; color: var(--muted); }
+    .cm-empty-icon { font-size: 2.2rem; margin-bottom: .8rem; }
+
+    /* 投稿カード */
+    .cm-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.3rem 1.4rem; margin-bottom: 1rem;
+      transition: border-color .25s;
+    }
+    .cm-card:hover { border-color: rgba(196,155,255,.35); }
+    .cm-card-head { display: flex; align-items: center; gap: .7rem; margin-bottom: .8rem; }
+    .cm-avatar {
+      width: 38px; height: 38px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: linear-gradient(135deg, #3a2a5e, var(--surface));
+      color: var(--accent); font-weight: 600; font-size: .95rem;
+    }
+    .cm-meta { flex: 1; min-width: 0; }
+    .cm-username {
+      display: block; font-size: .85rem; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .cm-app {
+      display: inline-block; font-size: .7rem; font-weight: 600; letter-spacing: .06em;
+      color: var(--gold); margin-top: .1rem;
+    }
+    .cm-date { font-size: .74rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+    .cm-divider { height: 1px; background: var(--border); margin: .8rem 0; }
+    .cm-result {
+      font-size: .9rem; color: var(--text); line-height: 1.7; white-space: pre-wrap;
+      word-break: break-word; margin: 0 0 .6rem;
+    }
+    .cm-comment {
+      font-size: .9rem; color: var(--muted); font-style: italic; line-height: 1.6;
+      margin: 0 0 .8rem; word-break: break-word;
+    }
+    .cm-foot { display: flex; align-items: center; gap: .8rem; }
+    .cm-like {
+      display: inline-flex; align-items: center; gap: .35rem;
+      background: none; border: 1px solid var(--border); border-radius: 20px;
+      padding: .3rem .8rem; cursor: pointer; font: inherit; font-size: .82rem;
+      color: var(--muted); transition: color .2s, border-color .2s, background .2s;
+    }
+    .cm-like:hover, .cm-like.liked {
+      color: var(--error); border-color: rgba(255,107,138,.35); background: rgba(255,107,138,.07);
+    }
+    .cm-del {
+      margin-left: auto; background: none; border: none; cursor: pointer;
+      color: var(--muted); font: inherit; font-size: .78rem; transition: color .2s;
+    }
+    .cm-del:hover { color: var(--error); }
+
+    /* FAB */
+    .cm-fab {
+      position: fixed; bottom: 1.6rem; right: 1.6rem; z-index: 50;
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .8rem 1.5rem; border: none; border-radius: 40px; cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), #7c4dff); color: #0d0d1a;
+      font: inherit; font-size: .9rem; font-weight: 700;
+      box-shadow: 0 4px 22px rgba(124,77,255,.45); transition: transform .2s, box-shadow .2s;
+    }
+    .cm-fab:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(124,77,255,.6); }
+
+    /* モーダル */
+    .cm-overlay {
+      position: fixed; inset: 0; z-index: 200; padding: 1rem;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(5,5,15,.85); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      opacity: 0; pointer-events: none; transition: opacity .25s;
+    }
+    .cm-overlay.open { opacity: 1; pointer-events: auto; }
+    .cm-modal {
+      background: var(--surface); border: 1px solid rgba(196,155,255,.25);
+      border-radius: 14px; padding: 1.8rem; width: 100%; max-width: 520px;
+      max-height: 90vh; overflow-y: auto; transform: translateY(16px); transition: transform .25s;
+    }
+    .cm-overlay.open .cm-modal { transform: none; }
+    .cm-modal-title { font-size: 1.3rem; color: var(--text); margin: 0 0 1.3rem; }
+    .cm-group { margin-bottom: 1.1rem; }
+    .cm-label {
+      display: block; font-size: .76rem; font-weight: 600; letter-spacing: .06em;
+      color: var(--muted); margin-bottom: .4rem;
+    }
+    .cm-select, .cm-textarea {
+      width: 100%; background: rgba(130,80,255,.08);
+      border: 1px solid rgba(130,80,255,.3); border-radius: 8px;
+      color: var(--text); font: inherit; font-size: .88rem; padding: .6rem .8rem;
+      outline: none; transition: border-color .2s; resize: vertical;
+    }
+    .cm-select:focus, .cm-textarea:focus { border-color: var(--accent); }
+    .cm-select option, .cm-select optgroup { background: var(--surface); }
+    .cm-textarea { min-height: 90px; }
+    .cm-count { font-size: .72rem; color: var(--muted); text-align: right; margin: .3rem 0 0; }
+    .cm-actions { display: flex; gap: .7rem; justify-content: flex-end; margin-top: 1.3rem; }
+    .cm-btn {
+      padding: .65rem 1.4rem; border-radius: 40px; cursor: pointer; font: inherit;
+      font-size: .85rem; font-weight: 600; border: 1px solid transparent; transition: all .2s;
+    }
+    .cm-btn-ghost { background: transparent; border-color: var(--border); color: var(--muted); }
+    .cm-btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
+    .cm-btn-primary {
+      background: linear-gradient(135deg, var(--accent), #7c4dff); color: #0d0d1a;
+      box-shadow: 0 4px 16px rgba(124,77,255,.35);
+    }
+    .cm-btn-primary:hover { transform: translateY(-1px); }
+    .cm-btn:disabled { opacity: .6; cursor: default; transform: none; }
+    .cm-error { font-size: .82rem; color: var(--error); margin: .8rem 0 0; min-height: 1.1em; }
+  </style>
+</head>
+<body>
+
+<nav class="cm-nav">
+  <a href="../" class="cm-logo">✦ とむ<span>MYSTIC</span></a>
+  <a href="../" class="cm-back">← ホームへ戻る</a>
+</nav>
+
+<header class="cm-header">
+  <h1 class="cm-title">みんなの占い結果</h1>
+  <p class="cm-subtitle">占いの結果をシェアして、旅人たちと分かち合いましょう 💬</p>
+</header>
+
+<main class="cm-wrap">
+  <div id="cm-loading" class="cm-spinner-wrap"><div class="cm-spinner"></div></div>
+  <div id="cm-list" style="display:none;"></div>
+  <div id="cm-empty" class="cm-empty" style="display:none;">
+    <div class="cm-empty-icon">✨</div>
+    <p>まだ投稿がありません。最初の占い結果をシェアしてみましょう ✨</p>
+  </div>
+</main>
+
+<!-- 投稿FAB -->
+<button id="cm-fab" class="cm-fab" style="display:none;">✦ 占い結果をシェア</button>
+
+<!-- 投稿モーダル -->
+<div id="cm-modal" class="cm-overlay" role="dialog" aria-modal="true" aria-labelledby="cm-modal-title">
+  <div class="cm-modal">
+    <h2 class="cm-modal-title" id="cm-modal-title">占い結果をシェア</h2>
+
+    <div class="cm-group">
+      <label class="cm-label" for="cm-app">占いの種類</label>
+      <select id="cm-app" class="cm-select">
+        <optgroup label="星座・宿命">
+          <option>今日の星読み</option>
+          <option>数秘術診断</option>
+          <option>守護星特定</option>
+          <option>九星気学</option>
+          <option>マヤ暦診断</option>
+          <option>動物占い</option>
+          <option>姓名判断</option>
+          <option>バイオリズム</option>
+          <option>ムーンサイン</option>
+          <option>東洋星座×干支</option>
+          <option>ホロスコープ詳細</option>
+        </optgroup>
+        <optgroup label="カード・シンボル">
+          <option>タロット一枚引き</option>
+          <option>ルーン占い</option>
+          <option>オラクルカード</option>
+          <option>九宮格診断</option>
+        </optgroup>
+        <optgroup label="魂・前世・使命">
+          <option>前世診断</option>
+          <option>前世の職業</option>
+          <option>魂の使命診断</option>
+          <option>精霊動物診断</option>
+          <option>オーラカラー</option>
+          <option>チャクラ診断</option>
+        </optgroup>
+        <optgroup label="メッセージ・リーディング">
+          <option>オラクルメッセージ</option>
+          <option>夢解読AI</option>
+          <option>縁結び相性</option>
+          <option>夢の色彩診断</option>
+          <option>月相ジャーナル</option>
+          <option>宇宙メッセージ</option>
+        </optgroup>
+        <optgroup label="開運・ヒーリング">
+          <option>今日の開運カラー</option>
+          <option>パワーストーン</option>
+          <option>手相占い</option>
+        </optgroup>
+        <optgroup label="その他">
+          <option>その他</option>
+        </optgroup>
+      </select>
+    </div>
+
+    <div class="cm-group">
+      <label class="cm-label" for="cm-result">占い結果 <span style="color:var(--muted)">（必須）</span></label>
+      <textarea id="cm-result" class="cm-textarea" maxlength="1000" rows="5" placeholder="占いの結果を貼り付けるか、入力してください…"></textarea>
+      <p class="cm-count"><span id="cm-result-count">0</span> / 1000</p>
+    </div>
+
+    <div class="cm-group">
+      <label class="cm-label" for="cm-comment">ひとこと <span style="color:var(--muted)">（任意）</span></label>
+      <textarea id="cm-comment" class="cm-textarea" maxlength="200" rows="3" placeholder="感想やコメントを添えて…"></textarea>
+      <p class="cm-count"><span id="cm-comment-count">0</span> / 200</p>
+    </div>
+
+    <p id="cm-modal-error" class="cm-error"></p>
+
+    <div class="cm-actions">
+      <button id="cm-cancel" class="cm-btn cm-btn-ghost">キャンセル</button>
+      <button id="cm-submit" class="cm-btn cm-btn-primary">投稿する ✦</button>
+    </div>
+  </div>
+</div>
+
+<script src="../mystic-login.js"></script>
+<script>
+  const WORKER = "https://mystic-system-worker.inverted-triangle-leef.workers.dev";
+
+  let myUserId = null;
+  const likedPosts = new Set(JSON.parse(localStorage.getItem("community_liked") || "[]"));
+  function saveLiked() { localStorage.setItem("community_liked", JSON.stringify([...likedPosts])); }
+
+  /* ── ユーティリティ ── */
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function formatDate(iso) {
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    const h = diff / 3600000;
+    if (h < 1) { const m = Math.floor(diff / 60000); return m < 1 ? "たった今" : m + "分前"; }
+    if (h < 24) return Math.floor(h) + "時間前";
+    return d.toLocaleDateString("ja-JP", { month: "long", day: "numeric" });
+  }
+  function showToast(msg) {
+    const t = document.createElement("div");
+    t.style.cssText = "position:fixed;bottom:2rem;left:50%;transform:translateX(-50%);background:#2d1b4e;color:#e8d5b7;padding:.7rem 1.4rem;border-radius:8px;border:1px solid #7c4dff;font-size:.85rem;z-index:9999;box-shadow:0 4px 20px rgba(124,77,255,.3);";
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 3500);
+  }
+
+  /* ── カード描画 ── */
+  function renderCard(post) {
+    const liked = likedPosts.has(post.id);
+    const initial = (post.username || "?")[0].toUpperCase();
+    const commentHtml = post.userComment
+      ? '<p class="cm-comment">&ldquo;' + escHtml(post.userComment) + '&rdquo;</p>' : "";
+    const delHtml = (myUserId && post.userId === myUserId)
+      ? '<button class="cm-del" data-id="' + post.id + '">削除</button>' : "";
+
+    const card = document.createElement("article");
+    card.className = "cm-card";
+    card.dataset.id = post.id;
+    card.innerHTML =
+      '<div class="cm-card-head">' +
+        '<div class="cm-avatar">' + escHtml(initial) + '</div>' +
+        '<div class="cm-meta">' +
+          '<span class="cm-username">' + escHtml(post.username) + '</span>' +
+          '<span class="cm-app">' + escHtml(post.appName) + '</span>' +
+        '</div>' +
+        '<span class="cm-date">' + formatDate(post.createdAt) + '</span>' +
+      '</div>' +
+      '<div class="cm-divider"></div>' +
+      '<p class="cm-result">' + escHtml(post.resultText) + '</p>' +
+      commentHtml +
+      '<div class="cm-foot">' +
+        '<button class="cm-like' + (liked ? " liked" : "") + '" data-id="' + post.id + '">' +
+          '<span class="cm-like-icon">' + (liked ? "♥" : "♡") + '</span>' +
+          '<span class="cm-like-count">' + (post.likes || 0) + '</span>' +
+        '</button>' +
+        delHtml +
+      '</div>';
+
+    card.querySelector(".cm-like").addEventListener("click", handleLike);
+    const delBtn = card.querySelector(".cm-del");
+    if (delBtn) delBtn.addEventListener("click", handleDelete);
+    return card;
+  }
+
+  /* ── いいね ── */
+  async function handleLike(e) {
+    const btn = e.currentTarget;
+    const postId = btn.dataset.id;
+    if (likedPosts.has(postId)) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch(WORKER + "/community/like", {
+        method: "POST",
+        headers: MysticAuth.authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ postId }),
+      });
+      if (res.status === 409) { markLiked(btn, postId); return; }
+      if (!res.ok) { showToast("いいねできませんでした"); return; }
+      const data = await res.json();
+      markLiked(btn, postId);
+      btn.querySelector(".cm-like-count").textContent = data.likes;
+    } catch {
+      showToast("通信エラーが発生しました");
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  function markLiked(btn, postId) {
+    likedPosts.add(postId); saveLiked();
+    btn.classList.add("liked");
+    btn.querySelector(".cm-like-icon").textContent = "♥";
+  }
+
+  /* ── 削除 ── */
+  async function handleDelete(e) {
+    const btn = e.currentTarget;
+    const postId = btn.dataset.id;
+    if (!confirm("この投稿を削除しますか？")) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch(WORKER + "/community/post/" + encodeURIComponent(postId), {
+        method: "DELETE",
+        headers: MysticAuth.authHeaders(),
+      });
+      if (!res.ok) { showToast("削除できませんでした"); btn.disabled = false; return; }
+      const card = document.querySelector('.cm-card[data-id="' + CSS.escape(postId) + '"]');
+      if (card) card.remove();
+      showToast("削除しました");
+      const list = document.getElementById("cm-list");
+      if (!list.children.length) {
+        list.style.display = "none";
+        document.getElementById("cm-empty").style.display = "block";
+      }
+    } catch {
+      showToast("通信エラーが発生しました");
+      btn.disabled = false;
+    }
+  }
+
+  /* ── フィード読み込み ── */
+  async function loadFeed() {
+    const loading = document.getElementById("cm-loading");
+    const list = document.getElementById("cm-list");
+    const empty = document.getElementById("cm-empty");
+    loading.style.display = "flex"; list.style.display = "none"; empty.style.display = "none";
+    try {
+      const res = await fetch(WORKER + "/community/feed", { headers: MysticAuth.authHeaders() });
+      if (!res.ok) throw new Error("fetch failed");
+      const data = await res.json();
+      const posts = Array.isArray(data.posts) ? data.posts : [];
+      loading.style.display = "none";
+      if (!posts.length) { empty.style.display = "block"; return; }
+      list.innerHTML = "";
+      posts.forEach((p) => list.appendChild(renderCard(p)));
+      list.style.display = "block";
+    } catch {
+      loading.style.display = "none";
+      empty.style.display = "block";
+      empty.querySelector("p").textContent = "フィードを読み込めませんでした。時間をおいて再度お試しください。";
+    }
+  }
+
+  /* ── 投稿モーダル ── */
+  const modal = document.getElementById("cm-modal");
+  const resultTa = document.getElementById("cm-result");
+  const commentTa = document.getElementById("cm-comment");
+  const modalError = document.getElementById("cm-modal-error");
+
+  function openModal() { modal.classList.add("open"); resultTa.focus(); }
+  function closeModal() { modal.classList.remove("open"); modalError.textContent = ""; }
+
+  document.getElementById("cm-fab").addEventListener("click", openModal);
+  document.getElementById("cm-cancel").addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => { if (e.target === modal) closeModal(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("open")) closeModal();
+  });
+  resultTa.addEventListener("input", function () {
+    document.getElementById("cm-result-count").textContent = this.value.length;
+  });
+  commentTa.addEventListener("input", function () {
+    document.getElementById("cm-comment-count").textContent = this.value.length;
+  });
+
+  document.getElementById("cm-submit").addEventListener("click", async function () {
+    const btn = this;
+    const appName = document.getElementById("cm-app").value;
+    const resultText = resultTa.value.trim();
+    const userComment = commentTa.value.trim();
+    modalError.textContent = "";
+    if (!resultText) { modalError.textContent = "占い結果を入力してください。"; return; }
+
+    btn.disabled = true; btn.textContent = "投稿中…";
+    try {
+      const res = await fetch(WORKER + "/community/post", {
+        method: "POST",
+        headers: MysticAuth.authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ appName, resultText, userComment }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) { modalError.textContent = "投稿にはサブスクリプションが必要です。"; return; }
+      if (res.status === 429) { modalError.textContent = "投稿が多すぎます。しばらくしてからお試しください。"; return; }
+      if (!res.ok) { modalError.textContent = data.error || "投稿に失敗しました。"; return; }
+
+      closeModal();
+      resultTa.value = ""; commentTa.value = "";
+      document.getElementById("cm-result-count").textContent = "0";
+      document.getElementById("cm-comment-count").textContent = "0";
+      showToast("投稿しました ✦");
+
+      const list = document.getElementById("cm-list");
+      const empty = document.getElementById("cm-empty");
+      list.insertBefore(renderCard(data.post), list.firstChild);
+      list.style.display = "block";
+      empty.style.display = "none";
+    } catch {
+      modalError.textContent = "通信エラーが発生しました。再度お試しください。";
+    } finally {
+      btn.disabled = false; btn.textContent = "投稿する ✦";
+    }
+  });
+
+  /* ── 初期化（mystic-login.js のサブスク確認後に呼ばれる） ── */
+  window.onMysticLogin = async () => {
+    // 自分のuserId（削除ボタン表示判定用）
+    try {
+      const res = await fetch(WORKER + "/auth/me", { headers: MysticAuth.authHeaders() });
+      if (res.ok) { const me = await res.json(); myUserId = me.userId || null; }
+    } catch { /* ignore */ }
+    document.getElementById("cm-fab").style.display = "inline-flex";
+    loadFeed();
+  };
+</script>
+</body>
+</html>

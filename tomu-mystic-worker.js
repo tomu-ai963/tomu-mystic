@@ -126,6 +126,8 @@ const RATE_LIMITS = {
   mailpref: 10, // /mail-pref POST           : ユーザーあたり 10回/時
   history: 60,  // /history/:index DELETE     : ユーザーあたり 60回/時
   profile: 10,  // /profile POST             : ユーザーあたり 10回/時
+  communityPost: 10, // /community/post POST  : ユーザーあたり 10回/時
+  communityLike: 60, // /community/like POST  : ユーザーあたり 60回/時
 };
 
 function rateBucket(date = new Date()) {
@@ -224,6 +226,7 @@ export default {
       if (path === "/mail-pref")              return await handleMailPref(request, env);
       if (path === "/profile")                return await handleProfile(request, env);
       if (path === "/history" || path.startsWith("/history/")) return await handleHistory(request, env, path);
+      if (path.startsWith("/community/")) return await handleCommunity(request, env, path);
       if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
       if (path === "/webhook")               return await handleStripeWebhook(request, env);
 
@@ -644,6 +647,172 @@ async function handleHistory(request, env, path) {
     return jsonResponse({ error: "削除に失敗しました" }, 500);
   }
   return jsonResponse({ success: true, history: list });
+}
+
+// ============================================
+// コミュニティ（みんなの占い結果）
+// OriacleのSNS機能を移植。認証=既存Bearerセッション / サブスク必須。
+// KV（MYSTIC_SUBSCRIPTIONS を流用）:
+//   feed:index             → 投稿IDの配列（新しい順・最大 COMMUNITY_FEED_MAX 件）
+//   post:<id>              → 投稿オブジェクト（TTL 90日）
+//   like:<postId>:<userId> → いいね済みフラグ（TTL 90日・重複防止）
+// 投稿IDは ULID（時系列ソート可能）。
+// ============================================
+
+const COMMUNITY_FEED_MAX = 100;
+const COMMUNITY_POST_TTL = 90 * 24 * 60 * 60; // 90日
+const COMMUNITY_APPNAME_MAX = 100;
+const COMMUNITY_COMMENT_MAX = 200;
+
+// Crockford base32（ULID用）
+const ULID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+// 先頭10文字=50bitタイムスタンプ＋後16文字=80bitランダム
+function generateULID() {
+  let id = "";
+  let t = Date.now();
+  for (let i = 9; i >= 0; i--) {
+    id = ULID_CHARS[t % 32] + id;
+    t = Math.floor(t / 32);
+  }
+  for (let i = 0; i < 16; i++) {
+    id += ULID_CHARS[Math.floor(Math.random() * 32)];
+  }
+  return id;
+}
+
+// 表示名（プロフィール登録名 → 無ければ匿名）。メールアドレスは公開しない。
+function communityDisplayName(profile) {
+  const name = (profile && typeof profile.name === "string") ? profile.name.trim() : "";
+  return name || "匿名の旅人";
+}
+
+// /community/* 共通処理（認証＋サブスク必須）
+async function handleCommunity(request, env, path) {
+  const userId = await authenticate(request, env);
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+
+  const isSubscribed = await checkSubscription(userId, env);
+  if (!isSubscribed) return jsonResponse({ error: "サブスクリプションが必要です" }, 403);
+
+  const method = request.method;
+  if (path === "/community/feed" && method === "GET")  return await handleCommunityFeed(env);
+  if (path === "/community/post" && method === "POST") return await handleCommunityPost(request, env, userId);
+  if (path === "/community/like" && method === "POST") return await handleCommunityLike(request, env, userId);
+  if (path.startsWith("/community/post/") && method === "DELETE") {
+    return await handleCommunityDelete(env, userId, path.slice("/community/post/".length));
+  }
+  return jsonResponse({ error: "Not Found" }, 404);
+}
+
+// GET /community/feed → 投稿一覧（新しい順）
+async function handleCommunityFeed(env) {
+  const feedRaw = await env.MYSTIC_SUBSCRIPTIONS.get("feed:index");
+  if (!feedRaw) return jsonResponse({ posts: [] });
+  let ids;
+  try { ids = JSON.parse(feedRaw); } catch { ids = []; }
+  if (!Array.isArray(ids)) ids = [];
+  const posts = await Promise.all(ids.map(async (id) => {
+    const raw = await env.MYSTIC_SUBSCRIPTIONS.get(`post:${id}`);
+    return raw ? JSON.parse(raw) : null;
+  }));
+  return jsonResponse({ posts: posts.filter(Boolean) });
+}
+
+// POST /community/post → 投稿作成
+async function handleCommunityPost(request, env, userId) {
+  if (!await checkRateLimit(env, "communityPost", userId)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return jsonResponse({ error: "Invalid input" }, 400);
+
+  const appName = typeof body.appName === "string" ? body.appName.trim() : "";
+  const resultText = typeof body.resultText === "string" ? body.resultText.trim() : "";
+  const userComment = typeof body.userComment === "string" ? body.userComment.trim() : "";
+
+  // appName: 非空・100文字以内 / resultText: 1〜1000文字（text検証を流用）/ userComment: 200文字以内
+  if (!appName || appName.length > COMMUNITY_APPNAME_MAX) return jsonResponse({ error: "Invalid input" }, 400);
+  if (!validateInput("text", resultText)) return jsonResponse({ error: "Invalid input" }, 400);
+  if (userComment.length > COMMUNITY_COMMENT_MAX) return jsonResponse({ error: "Invalid input" }, 400);
+
+  const profile = await getProfile(userId, env);
+  const id = generateULID();
+  const post = {
+    id,
+    userId,
+    username: communityDisplayName(profile),
+    appName,
+    resultText,
+    userComment,
+    createdAt: new Date().toISOString(),
+    likes: 0,
+  };
+
+  let feed;
+  const feedRaw = await env.MYSTIC_SUBSCRIPTIONS.get("feed:index");
+  try { feed = feedRaw ? JSON.parse(feedRaw) : []; } catch { feed = []; }
+  if (!Array.isArray(feed)) feed = [];
+  feed.unshift(id);
+  if (feed.length > COMMUNITY_FEED_MAX) feed.length = COMMUNITY_FEED_MAX;
+
+  await Promise.all([
+    env.MYSTIC_SUBSCRIPTIONS.put(`post:${id}`, JSON.stringify(post), { expirationTtl: COMMUNITY_POST_TTL }),
+    env.MYSTIC_SUBSCRIPTIONS.put("feed:index", JSON.stringify(feed)),
+  ]);
+
+  return jsonResponse({ post }, 201);
+}
+
+// POST /community/like → いいね（重複不可）
+async function handleCommunityLike(request, env, userId) {
+  if (!await checkRateLimit(env, "communityLike", userId)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
+  const postId = (body && typeof body.postId === "string") ? body.postId : "";
+  if (!postId) return jsonResponse({ error: "Invalid input" }, 400);
+
+  const likeKey = `like:${postId}:${userId}`;
+  const [alreadyLiked, postRaw] = await Promise.all([
+    env.MYSTIC_SUBSCRIPTIONS.get(likeKey),
+    env.MYSTIC_SUBSCRIPTIONS.get(`post:${postId}`),
+  ]);
+  if (alreadyLiked) return jsonResponse({ error: "すでにいいね済みです" }, 409);
+  if (!postRaw) return jsonResponse({ error: "Not Found" }, 404);
+
+  const post = JSON.parse(postRaw);
+  post.likes = (post.likes || 0) + 1;
+
+  await Promise.all([
+    env.MYSTIC_SUBSCRIPTIONS.put(`post:${postId}`, JSON.stringify(post), { expirationTtl: COMMUNITY_POST_TTL }),
+    env.MYSTIC_SUBSCRIPTIONS.put(likeKey, "1", { expirationTtl: COMMUNITY_POST_TTL }),
+  ]);
+
+  return jsonResponse({ likes: post.likes });
+}
+
+// DELETE /community/post/:id → 自分の投稿のみ削除
+async function handleCommunityDelete(env, userId, id) {
+  if (!id) return jsonResponse({ error: "Invalid input" }, 400);
+  const raw = await env.MYSTIC_SUBSCRIPTIONS.get(`post:${id}`);
+  if (!raw) return jsonResponse({ error: "Not Found" }, 404);
+  const post = JSON.parse(raw);
+  if (post.userId !== userId) return jsonResponse({ error: "Forbidden" }, 403);
+
+  let feed = [];
+  const feedRaw = await env.MYSTIC_SUBSCRIPTIONS.get("feed:index");
+  try { feed = feedRaw ? JSON.parse(feedRaw) : []; } catch { feed = []; }
+  feed = Array.isArray(feed) ? feed.filter((x) => x !== id) : [];
+
+  await Promise.all([
+    env.MYSTIC_SUBSCRIPTIONS.delete(`post:${id}`),
+    env.MYSTIC_SUBSCRIPTIONS.put("feed:index", JSON.stringify(feed)),
+  ]);
+
+  return jsonResponse({ success: true });
 }
 
 // ============================================
