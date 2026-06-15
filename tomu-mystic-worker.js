@@ -1248,59 +1248,90 @@ async function handleMysticRequest(action, body, env, userId) {
 // 毎朝の占いメール — 配信内容生成 & 送信
 // ============================================
 
-// 個人の生年月日を保持していないため、入力なしで成立する占いのみを採用
+// メール配信対象の占い（mail-pref で選択可能な appId と表示用 label/icon）。
+// 占い本文は generateMailReading() が READINGS（handleMysticRequest）で都度生成する。
 const DAILY_MAIL_APPS = {
-  tarot_draw: {
-    label: "タロット一枚引き",
-    icon: "🃏",
-    async generate(env) {
-      const card = TAROT_CARDS[Math.floor(Math.random() * TAROT_CARDS.length)];
-      const text = await callClaude(
-        env,
-        `あなたは神秘的なタロット占い師です。引いたカードのエネルギーと意味を、今日一日を歩み始めるユーザーへの朝のメッセージとして神秘的な文体で日本語で届けてください。250文字程度で。`,
-        `引いたカード：${card}`
-      );
-      return { title: `タロット一枚引き — 「${card}」`, body: text };
-    },
-  },
-  rune_reading: {
-    label: "ルーン占い",
-    icon: "ᚱ",
-    async generate(env) {
-      const rune = RUNE_NAMES[Math.floor(Math.random() * RUNE_NAMES.length)];
-      const text = await callClaude(
-        env,
-        `あなたは北欧の神秘を伝えるルーン占い師です。引いたルーン文字の古代的な意味・エネルギー・今日という一日へのメッセージを神秘的な文体で日本語で届けてください。250文字程度で。`,
-        `引いたルーン：${rune}`
-      );
-      return { title: `ルーン占い — ${rune}`, body: text };
-    },
-  },
-  oracle_message: {
-    label: "オラクルメッセージ",
-    icon: "🌌",
-    async generate(env, ctx) {
-      const text = await callClaude(
-        env,
-        `あなたは宇宙のチャネラーです。新しい一日を迎えるユーザーに向けて、宇宙からの神秘的な朝のメッセージを詩的な日本語で届けてください。150〜200文字程度で。`,
-        `今日の日付：${ctx.today}\nこれから一日を始めるユーザーへ、宇宙からの朝のメッセージを届けてください。`
-      );
-      return { title: "今日のオラクルメッセージ", body: text };
-    },
-  },
-  moon_journal: {
-    label: "月相ジャーナル",
-    icon: "📔",
-    async generate(env, ctx) {
-      const text = await callClaude(
-        env,
-        `あなたは月の神秘を語る案内人です。今日という日の朝に、内省のための問いかけと月からのメッセージを詩的な日本語で届けてください。200文字程度で。`,
-        `今日の日付：${ctx.today}`
-      );
-      return { title: `月相ジャーナル — ${ctx.today}`, body: text };
-    },
-  },
+  tarot_draw:     { label: "タロット一枚引き",   icon: "🃏" },
+  rune_reading:   { label: "ルーン占い",         icon: "ᚱ" },
+  oracle_message: { label: "オラクルメッセージ", icon: "🌌" },
+  moon_journal:   { label: "月相ジャーナル",     icon: "📔" },
 };
+
+// mail-pref の appId → READINGS のアクション。
+const MAIL_APP_TO_ACTION = {
+  tarot_draw:     "tarot",
+  rune_reading:   "rune-reading",
+  oracle_message: "oracle-message",
+  moon_journal:   "moon-journal",
+};
+
+// ============================================
+// プロフィール（生年月日・登録名）
+// KVキー: profile:<userId> → { birthdate?, name? }
+// メールのパーソナライズに使用。未設定でも占い配信は成立する。
+// ============================================
+const PROFILE_PREFIX = "profile:";
+
+async function getProfile(userId, env) {
+  try {
+    const data = await env.MYSTIC_SUBSCRIPTIONS.get(PROFILE_PREFIX + userId);
+    if (!data) return {};
+    const p = JSON.parse(data);
+    return (p && typeof p === "object" && !Array.isArray(p)) ? p : {};
+  } catch {
+    return {};
+  }
+}
+
+// プロフィール（登録名・生年月日→星座）からメール冒頭の挨拶文を組み立てる。
+function buildMailGreeting(profile) {
+  const name = (profile && typeof profile.name === "string") ? profile.name.trim() : "";
+  const sign = (profile && validateInput("birthdate", profile.birthdate)) ? getSunSign(profile.birthdate) : "";
+  const hello = name ? `${name}さん、おはようございます。` : "おはようございます。";
+  const line = sign
+    ? `今日の${sign}のあなたへ、星々からのメッセージをお届けします。`
+    : "今日のあなたへ、星々からのメッセージをお届けします。";
+  return `${hello}\n${line}`;
+}
+
+// メール用の占いを1件生成する。appId を READINGS のアクションへ対応づけ、
+// 必要な入力（ランダムなカード/ルーン等）を組み立てて handleMysticRequest() で実行する。
+// 履歴（history:<userId>）を汚さないため userId は渡さない。
+async function generateMailReading(appId, today, env) {
+  const action = MAIL_APP_TO_ACTION[appId];
+  if (!action) return null;
+
+  let title, body;
+  switch (appId) {
+    case "tarot_draw": {
+      const card = TAROT_CARDS[Math.floor(Math.random() * TAROT_CARDS.length)];
+      title = `タロット一枚引き — 「${card}」`;
+      body = { card };
+      break;
+    }
+    case "rune_reading": {
+      const rune = RUNE_NAMES[Math.floor(Math.random() * RUNE_NAMES.length)];
+      title = `ルーン占い — ${rune}`;
+      body = { rune };
+      break;
+    }
+    case "oracle_message":
+      title = "今日のオラクルメッセージ";
+      body = { feeling: `新しい一日（${today}）の始まりに、宇宙からのメッセージを受け取りたい。` };
+      break;
+    case "moon_journal":
+      title = `月相ジャーナル — ${today}`;
+      body = { today };
+      break;
+    default:
+      return null;
+  }
+
+  const res = await handleMysticRequest(action, body, env);
+  const data = await res.json().catch(() => ({}));
+  if (!data || !data.result) throw new Error(data.error || "占い結果を取得できませんでした");
+  return { title, body: data.result };
+}
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, c => ({
@@ -1308,7 +1339,7 @@ function escapeHtml(str) {
   }[c]));
 }
 
-function buildDailyMailHtml(today, sections) {
+function buildDailyMailHtml(today, sections, greeting = "") {
   const sectionsHtml = sections.map(s => `
     <tr><td style="padding:0 28px 24px;">
       <div style="background:#11112a;border:1px solid #2a2a4a;border-radius:14px;padding:24px;">
@@ -1316,6 +1347,11 @@ function buildDailyMailHtml(today, sections) {
         <p style="margin:0;font-size:14px;line-height:1.9;color:#e8e0f0;white-space:pre-wrap;">${escapeHtml(s.body)}</p>
       </div>
     </td></tr>`).join("");
+
+  const greetingHtml = greeting ? `
+        <tr><td style="padding:0 28px 24px;">
+          <p style="margin:0;font-size:14px;line-height:1.9;color:#e8e0f0;white-space:pre-wrap;text-align:center;">${escapeHtml(greeting)}</p>
+        </td></tr>` : "";
 
   return `<!DOCTYPE html>
 <html lang="ja"><head><meta charset="UTF-8"/></head>
@@ -1327,6 +1363,7 @@ function buildDailyMailHtml(today, sections) {
           <p style="margin:0;font-size:13px;letter-spacing:.3em;color:#c49bff;">✦ とむMYSTIC ✦</p>
           <p style="margin:8px 0 0;font-size:12px;letter-spacing:.15em;color:#8880a8;">${escapeHtml(today)} の占いをお届けします</p>
         </td></tr>
+        ${greetingHtml}
         ${sectionsHtml}
         <tr><td style="padding:4px 28px 0;text-align:center;">
           <p style="margin:0 0 6px;font-size:11px;letter-spacing:.1em;color:#8880a8;">配信設定の変更は とむMYSTIC マイページから行えます</p>
@@ -1338,7 +1375,7 @@ function buildDailyMailHtml(today, sections) {
 </body></html>`;
 }
 
-async function sendDailyMail(env, to, today, sections) {
+async function sendDailyMail(env, to, today, sections, greeting = "") {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -1348,8 +1385,8 @@ async function sendDailyMail(env, to, today, sections) {
     body: JSON.stringify({
       from: "とむMYSTIC <noreply@tomu-ai.dev>",
       to: [to],
-      subject: `✦ とむMYSTIC — ${today}の占い`,
-      html: buildDailyMailHtml(today, sections),
+      subject: `今日の占い ✨ ${today}`,
+      html: buildDailyMailHtml(today, sections, greeting),
     }),
   });
   if (!res.ok) {
@@ -1397,19 +1434,24 @@ async function processDailyMailUser(userId, currentHour, today, env) {
     try { email = atob(userId); } catch { return; }
     if (!email.includes("@")) return;
 
+    // プロフィール（生年月日・登録名）を取得してパーソナライズ（未設定でも続行）
+    const profile = await getProfile(userId, env);
+
     const sections = [];
     for (const appId of pref.apps) {
-      const app = DAILY_MAIL_APPS[appId];
-      if (!app) continue;
+      const mailApp = DAILY_MAIL_APPS[appId];
+      if (!mailApp) continue;
       try {
-        sections.push({ ...await app.generate(env, { today }), icon: app.icon });
+        const reading = await generateMailReading(appId, today, env);
+        if (reading) sections.push({ ...reading, icon: mailApp.icon });
       } catch (err) {
+        // AI生成失敗時はその占いをスキップし、他の占い・メール送信は続行
         console.error(`占い生成失敗 [${appId}] (${email}): ${err.message}`);
       }
     }
     if (!sections.length) return;
 
-    await sendDailyMail(env, email, today, sections);
+    await sendDailyMail(env, email, today, sections, buildMailGreeting(profile));
   } catch (err) {
     console.error(`メール配信処理エラー (${userId}): ${err.message}`);
   }
