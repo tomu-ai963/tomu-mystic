@@ -10,3 +10,12 @@ id = "5e1c00cba16d46119b2123dc4dd23322"
 
 [triggers]
 crons = ["0 * * * *"]
+
+[[queues.producers]]
+queue = "mystic-mail-queue"
+binding = "MAIL_QUEUE"
+
+[[queues.consumers]]
+queue = "mystic-mail-queue"
+max_batch_size = 10
+max_batch_timeout = 30

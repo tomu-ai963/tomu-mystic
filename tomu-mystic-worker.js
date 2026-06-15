@@ -240,9 +240,24 @@ export default {
     }
   },
 
-  // 毎時起動 → JST時刻が一致するユーザーへ占いメールを配信
+  // 毎時起動 → 全ユーザーをQueuesにジョブとして積む（配信本体はqueueコンシューマー）
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runDailyMail(env));
+  },
+
+  // Queueコンシューマー → 1ユーザーずつメール配信を処理
+  async queue(batch, env) {
+    for (const msg of batch.messages) {
+      try {
+        const { userId, hour, today } = msg.body;
+        await processDailyMailUser(userId, hour, today, env);
+        msg.ack();
+      } catch (err) {
+        // 失敗時は自動リトライ（Queuesのデフォルト動作）
+        console.error(`Queue処理失敗: ${err && err.message}`);
+        msg.retry();
+      }
+    }
   },
 };
 
@@ -1443,6 +1458,9 @@ async function sendDailyMail(env, to, today, sections, greeting = "") {
 
 // ============================================
 // 毎朝の占いメール — Cronによる配信処理
+// Cronは全ユーザーを走査してQueuesにジョブを積むだけ。
+// 実際のメール配信は queue コンシューマー（processDailyMailUser）が担う。
+// hour / today は積んだ時点（Cron発火時刻）の値を各ジョブに含めて整合性を保つ。
 // ============================================
 
 function jstParts(date) {
@@ -1460,7 +1478,7 @@ async function runDailyMail(env) {
     const list = await env.MYSTIC_SUBSCRIPTIONS.list({ prefix: MAIL_PREF_PREFIX, cursor });
     for (const key of list.keys) {
       const userId = key.name.slice(MAIL_PREF_PREFIX.length);
-      await processDailyMailUser(userId, currentHour, today, env);
+      await env.MAIL_QUEUE.send({ userId, hour: currentHour, today });
     }
     cursor = list.list_complete ? undefined : list.cursor;
   } while (cursor);
