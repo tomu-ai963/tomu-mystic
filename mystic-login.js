@@ -27,6 +27,7 @@ if ("serviceWorker" in navigator) {
 const MysticAuth = {
   SESSION_KEY: "mystic_session",
   SUBSCRIPTION_KEY: "mystic_subscription",
+  EMAIL_KEY: "mystic_email",
 
   getSession() {
     return localStorage.getItem(this.SESSION_KEY);
@@ -90,7 +91,13 @@ const MysticAuth = {
     const data = await res.json().catch(() => ({}));
     const subscribed = data.subscribed === true;
     localStorage.setItem(this.SUBSCRIPTION_KEY, subscribed ? "active" : "inactive");
+    if (data.email) localStorage.setItem(this.EMAIL_KEY, data.email);
     return { loggedIn: true, subscribed, email: data.email };
+  },
+
+  // refreshMe でキャッシュした登録メールアドレス（マイページ表示用）
+  getEmail() {
+    return localStorage.getItem(this.EMAIL_KEY) || "";
   },
 
   async logout() {
@@ -102,6 +109,7 @@ const MysticAuth = {
     }
     localStorage.removeItem(this.SESSION_KEY);
     localStorage.removeItem(this.SUBSCRIPTION_KEY);
+    localStorage.removeItem(this.EMAIL_KEY);
   },
 
   // Stripe Checkoutページへリダイレクト
@@ -143,6 +151,35 @@ const MysticAuth = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "設定の保存に失敗しました");
     return data.pref;
+  },
+
+  // 占い履歴を取得（新しい順の配列）
+  async getHistory() {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/history`, { headers: this.authHeaders() });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "履歴の取得に失敗しました");
+    return Array.isArray(data.history) ? data.history : [];
+  },
+
+  // 占い履歴を1件削除（index は新しい順・0始まり）。更新後の配列を返す。
+  async deleteHistory(index) {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/history/${index}`, {
+      method: "DELETE",
+      headers: this.authHeaders(),
+    });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "削除に失敗しました");
+    return Array.isArray(data.history) ? data.history : [];
   },
 
   // 各アプリからAI APIを呼ぶ共通関数

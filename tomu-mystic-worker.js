@@ -5,7 +5,7 @@
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-MCP-Token, X-Admin-Token",
 };
 
@@ -124,6 +124,7 @@ const RATE_LIMITS = {
   magic: 5,     // /auth/request-magic-link : メアドあたり 5回/時
   ai: 20,       // /api/mystic・/mystic/*    : ユーザーあたり 20回/時
   mailpref: 10, // /mail-pref POST           : ユーザーあたり 10回/時
+  history: 60,  // /history/:index DELETE     : ユーザーあたり 60回/時
 };
 
 function rateBucket(date = new Date()) {
@@ -194,7 +195,7 @@ export default {
           return jsonResponse({ error: "Too many requests" }, 429);
         }
 
-        return await handleMysticRequest(mysticAction, mysticBody, env);
+        return await handleMysticRequest(mysticAction, mysticBody, env, userId);
       }
 
       if (path === "/api/mystic") {
@@ -209,7 +210,7 @@ export default {
         if (!ALLOWED_ACTIONS.has(action)) return jsonResponse({ error: "Invalid input" }, 400);
         if (!validateMysticBody(action, rest)) return jsonResponse({ error: "Invalid input" }, 400);
         if (!await checkRateLimit(env, "ai", userId)) return jsonResponse({ error: "Too many requests" }, 429);
-        return await handleMysticRequest(action, rest, env);
+        return await handleMysticRequest(action, rest, env, userId);
       }
 
       if (path === "/subscription/check")    return await handleSubscriptionCheck(request, env);
@@ -220,6 +221,7 @@ export default {
         return await handleSubscriptionRegister(request, env);
       }
       if (path === "/mail-pref")              return await handleMailPref(request, env);
+      if (path === "/history" || path.startsWith("/history/")) return await handleHistory(request, env, path);
       if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
       if (path === "/webhook")               return await handleStripeWebhook(request, env);
 
@@ -557,6 +559,74 @@ async function handleMailPref(request, env) {
   }
 
   return jsonResponse({ error: "Method Not Allowed" }, 405);
+}
+
+// ============================================
+// 占い履歴
+// KVキー: history:<userId> → 直近 HISTORY_MAX 件の配列（新しい順）
+// 各要素: { action, result, createdAt, extra }
+// 永続保存（expirationTtl なし）。MYSTIC_SUBSCRIPTIONS KV を流用。
+// ============================================
+
+const HISTORY_PREFIX = "history:";
+const HISTORY_MAX = 30;
+
+async function getHistory(userId, env) {
+  try {
+    const data = await env.MYSTIC_SUBSCRIPTIONS.get(HISTORY_PREFIX + userId);
+    if (!data) return [];
+    const list = JSON.parse(data);
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+// 占い結果を履歴へ追加（新しい順）。HISTORY_MAX 超過分は古いものから破棄。
+// 保存失敗は占い結果の返却を妨げない（ベストエフォート）。
+async function saveHistory(env, userId, entry) {
+  try {
+    const list = await getHistory(userId, env);
+    list.unshift(entry);
+    if (list.length > HISTORY_MAX) list.length = HISTORY_MAX;
+    await env.MYSTIC_SUBSCRIPTIONS.put(HISTORY_PREFIX + userId, JSON.stringify(list));
+  } catch (err) {
+    console.error(`履歴保存失敗 (${userId}): ${err && err.message}`);
+  }
+}
+
+// GET /history          → 履歴一覧
+// DELETE /history/:index → index 番目（新しい順・0始まり）を1件削除
+async function handleHistory(request, env, path) {
+  const userId = await authenticate(request, env);
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+
+  if (path === "/history") {
+    if (request.method !== "GET") return jsonResponse({ error: "Method Not Allowed" }, 405);
+    return jsonResponse({ history: await getHistory(userId, env) });
+  }
+
+  // /history/:index
+  if (request.method !== "DELETE") return jsonResponse({ error: "Method Not Allowed" }, 405);
+
+  const index = Number(path.slice("/history/".length));
+  if (!Number.isInteger(index) || index < 0) return jsonResponse({ error: "Invalid input" }, 400);
+
+  // レートリミット（ユーザーあたり 60回/時）
+  if (!await checkRateLimit(env, "history", userId)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
+
+  const list = await getHistory(userId, env);
+  if (index >= list.length) return jsonResponse({ error: "Not Found" }, 404);
+  list.splice(index, 1);
+  try {
+    await env.MYSTIC_SUBSCRIPTIONS.put(HISTORY_PREFIX + userId, JSON.stringify(list));
+  } catch (err) {
+    console.error(`履歴削除失敗 (${userId}): ${err && err.message}`);
+    return jsonResponse({ error: "削除に失敗しました" }, 500);
+  }
+  return jsonResponse({ success: true, history: list });
 }
 
 // ============================================
@@ -1152,7 +1222,7 @@ const READINGS = {
 // 占いリクエスト共通ハンドラ。
 // READINGS を参照して「確定計算 → Claude 呼び出し → JSONレスポンス」を行う。
 // 認証・サブスク・入力バリデーション・レートリミットは呼び出し側（fetch）で実施済み。
-async function handleMysticRequest(action, body, env) {
+async function handleMysticRequest(action, body, env, userId) {
   const reading = READINGS[action];
   if (!reading) return jsonResponse({ error: "Not Found" }, 404);
   const built = reading.build(body);
@@ -1160,6 +1230,17 @@ async function handleMysticRequest(action, body, env) {
   const result = reading.vision
     ? await callClaudeVision(env, system, built.imageBase64, built.mimeType)
     : await callClaude(env, system, built.user);
+
+  // 占い結果を履歴に保存（result + extra のみ。imageBase64 等の入力は保存しない）
+  if (userId) {
+    await saveHistory(env, userId, {
+      action,
+      result,
+      createdAt: new Date().toISOString(),
+      extra: built.extra || {},
+    });
+  }
+
   return jsonResponse({ result, ...(built.extra || {}) });
 }
 

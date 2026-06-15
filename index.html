@@ -81,6 +81,13 @@
     <a href="apps/crystal-guide.html" class="hub-card"><span class="hub-card-icon">💠</span><span class="hub-card-num">㉙</span><span class="hub-card-label">パワーストーン</span></a>
     <a href="apps/palm-reading.html" class="hub-card"><span class="hub-card-icon">🤚</span><span class="hub-card-num">㉚</span><span class="hub-card-label">手相占い</span></a>
   </div>
+
+  <div class="hub-section">▷ マイページ</div>
+  <div id="mypage-panel" class="card" style="max-width:560px;margin:0 auto 1.8rem;">
+    <div id="mypage-account" style="margin-bottom:1.3rem;"></div>
+    <p style="font-size:.78rem;color:var(--muted);letter-spacing:.08em;margin:0 0 .7rem;">🔮 占い履歴（直近10件）</p>
+    <div id="mypage-history" style="font-size:.85rem;color:var(--muted);">読み込み中...</div>
+  </div>
 </main>
 
 <footer style="position:relative;z-index:1;text-align:center;padding:2rem 1.5rem;color:var(--muted);font-size:0.8rem;border-top:1px solid var(--border);">
@@ -112,6 +119,7 @@ window.onMysticLogin = () => {
   document.getElementById("app").style.display = "block";
   renderBirthdatePanel();
   renderMailPrefPanel();
+  renderMyPage();
 };
 
 const MAIL_PREF_APPS = [
@@ -216,6 +224,137 @@ function showBirthdateInput() {
     if (!val) { alert("生年月日を選択してください"); return; }
     localStorage.setItem("mystic_birthdate", val);
     renderBirthdatePanel();
+  });
+}
+
+// ============================================
+// マイページ — 占い履歴
+// ============================================
+
+// 占い種別ID → 表示名・アイコン（Worker の READINGS キーと対応）
+const READING_LABELS = {
+  "star-reading":       { icon: "⭐",  label: "今日の星読み" },
+  "numerology":         { icon: "🔢",  label: "数秘術診断" },
+  "guardian-star":      { icon: "🌟",  label: "守護星特定" },
+  "nine-star-ki":       { icon: "☯️",  label: "九星気学" },
+  "maya-calendar":      { icon: "🌀",  label: "マヤ暦診断" },
+  "animal-fortune":     { icon: "🐾",  label: "動物占い" },
+  "name-fortune":       { icon: "✍️",  label: "姓名判断" },
+  "biorhythm":          { icon: "📈",  label: "バイオリズム" },
+  "moon-sign":          { icon: "🌙",  label: "ムーンサイン" },
+  "eastern-stars":      { icon: "🐉",  label: "東洋星座×干支" },
+  "horoscope-deep":     { icon: "🔭",  label: "ホロスコープ詳細" },
+  "tarot":              { icon: "🃏",  label: "タロット一枚引き" },
+  "rune-reading":       { icon: "ᚱ",   label: "ルーン占い" },
+  "oracle-cards":       { icon: "🌸",  label: "オラクルカード" },
+  "nine-palace":        { icon: "🔲",  label: "九宮格診断" },
+  "past-life":          { icon: "🕯️",  label: "前世診断" },
+  "past-profession":    { icon: "⚔️",  label: "前世の職業" },
+  "soul-mission":       { icon: "💎",  label: "魂の使命診断" },
+  "spirit-animal":      { icon: "🦋",  label: "精霊動物診断" },
+  "aura-reading":       { icon: "🌈",  label: "オーラカラー" },
+  "chakra-check":       { icon: "🔮",  label: "チャクラ診断" },
+  "oracle-message":     { icon: "🌌",  label: "オラクルメッセージ" },
+  "dream-decoder":      { icon: "💤",  label: "夢解読AI" },
+  "soul-compatibility": { icon: "💫",  label: "縁結び相性" },
+  "dream-colors":       { icon: "🎨",  label: "夢の色彩診断" },
+  "moon-journal":       { icon: "📔",  label: "月相ジャーナル" },
+  "cosmic-message":     { icon: "✨",  label: "宇宙メッセージ" },
+  "lucky-color":        { icon: "🎨",  label: "今日の開運カラー" },
+  "crystal-guide":      { icon: "💠",  label: "パワーストーン" },
+  "palm-reading":       { icon: "🤚",  label: "手相占い" },
+};
+
+function escapeMy(str) {
+  return String(str).replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
+}
+
+// ISO8601 → 日本時間 "YYYY/MM/DD HH:MM"
+function formatHistoryDate(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const p = n => String(n).padStart(2, "0");
+  return `${jst.getUTCFullYear()}/${p(jst.getUTCMonth() + 1)}/${p(jst.getUTCDate())} ${p(jst.getUTCHours())}:${p(jst.getUTCMinutes())}`;
+}
+
+async function renderMyPage() {
+  const acc = document.getElementById("mypage-account");
+  const email = MysticAuth.getEmail();
+  const birthdate = localStorage.getItem("mystic_birthdate");
+  acc.innerHTML = `
+    <p style="font-size:.95rem;color:var(--text);margin:0 0 .6rem;">👤 マイページ</p>
+    <div style="font-size:.85rem;color:var(--muted);line-height:1.9;">
+      <div>メールアドレス：<span style="color:var(--text);">${email ? escapeMy(email) : "—"}</span></div>
+      <div>生年月日：<span style="color:var(--text);">${birthdate ? escapeMy(birthdate) : "未登録"}</span></div>
+    </div>`;
+
+  const box = document.getElementById("mypage-history");
+  box.textContent = "読み込み中...";
+  try {
+    renderHistoryList(await MysticAuth.getHistory());
+  } catch (err) {
+    box.innerHTML = `<p style="font-size:.82rem;color:#ff6b6b;margin:0;">履歴を読み込めませんでした（${escapeMy(err.message)}）</p>`;
+  }
+}
+
+function renderHistoryList(history) {
+  const box = document.getElementById("mypage-history");
+  if (!history.length) {
+    box.innerHTML = `<p style="font-size:.82rem;color:var(--muted);margin:0;">まだ占い履歴がありません。気になる占いを試してみましょう。</p>`;
+    return;
+  }
+
+  // サーバーは新しい順の全件を返す。直近10件だけ表示（index はサーバー配列と一致）。
+  box.innerHTML = history.slice(0, 10).map((h, i) => {
+    const meta = READING_LABELS[h.action] || { icon: "✦", label: h.action };
+    const full = h.result || "";
+    const needsToggle = full.length > 100;
+    const preview = needsToggle ? full.slice(0, 100) + "…" : full;
+    return `
+      <div class="mypage-history-card" data-index="${i}" style="background:rgba(130,80,255,.06);border:1px solid rgba(130,80,255,.18);border-radius:.6rem;padding:.8rem .9rem;margin-bottom:.7rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.45rem;">
+          <span style="font-size:.85rem;color:var(--text);">${meta.icon} ${escapeMy(meta.label)}</span>
+          <span style="font-size:.72rem;color:var(--muted);white-space:nowrap;">${formatHistoryDate(h.createdAt)}</span>
+        </div>
+        <p class="mypage-history-text" data-full="${escapeMy(full)}" data-preview="${escapeMy(preview)}" data-expanded="0"
+           style="font-size:.82rem;color:var(--text);line-height:1.85;margin:0 0 .55rem;white-space:pre-wrap;${needsToggle ? "cursor:pointer;" : ""}">${escapeMy(preview)}</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;">
+          ${needsToggle ? `<button class="mypage-toggle-btn" style="background:none;border:none;color:var(--accent);font-size:.78rem;cursor:pointer;padding:0;">全文を読む ▾</button>` : `<span></span>`}
+          <button class="mypage-delete-btn" style="background:none;border:1px solid rgba(255,107,107,.4);color:#ff6b6b;font-size:.74rem;padding:.25rem .75rem;border-radius:.4rem;cursor:pointer;white-space:nowrap;">削除</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  box.querySelectorAll(".mypage-history-card").forEach(card => {
+    const textEl = card.querySelector(".mypage-history-text");
+    const toggleBtn = card.querySelector(".mypage-toggle-btn");
+    if (toggleBtn) {
+      const doToggle = () => {
+        const expanded = textEl.getAttribute("data-expanded") === "1";
+        textEl.textContent = expanded ? textEl.getAttribute("data-preview") : textEl.getAttribute("data-full");
+        textEl.setAttribute("data-expanded", expanded ? "0" : "1");
+        toggleBtn.textContent = expanded ? "全文を読む ▾" : "閉じる ▴";
+      };
+      toggleBtn.addEventListener("click", doToggle);
+      textEl.addEventListener("click", doToggle);
+    }
+
+    const delBtn = card.querySelector(".mypage-delete-btn");
+    delBtn.addEventListener("click", async () => {
+      if (!confirm("この占い履歴を削除しますか？")) return;
+      delBtn.disabled = true;
+      delBtn.textContent = "削除中...";
+      try {
+        renderHistoryList(await MysticAuth.deleteHistory(parseInt(card.getAttribute("data-index"), 10)));
+      } catch (err) {
+        alert(err.message);
+        delBtn.disabled = false;
+        delBtn.textContent = "削除";
+      }
+    });
   });
 }
 
