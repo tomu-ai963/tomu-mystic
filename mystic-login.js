@@ -153,6 +153,36 @@ const MysticAuth = {
     return data.pref;
   },
 
+  // プロフィール（生年月日・登録名）を取得
+  async getProfile() {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/profile`, { headers: this.authHeaders() });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "プロフィールの取得に失敗しました");
+    return data.profile || {};
+  },
+
+  // プロフィール（生年月日・登録名）を保存。保存後のプロフィールを返す。
+  async saveProfile(profile) {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/profile`, {
+      method: "POST",
+      headers: this.authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(profile),
+    });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "プロフィールの保存に失敗しました");
+    return data.profile || {};
+  },
+
   // 占い履歴を取得（新しい順の配列）
   async getHistory() {
     if (!this.isLoggedIn()) throw new Error("ログインが必要です");

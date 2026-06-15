@@ -125,6 +125,7 @@ const RATE_LIMITS = {
   ai: 20,       // /api/mystic・/mystic/*    : ユーザーあたり 20回/時
   mailpref: 10, // /mail-pref POST           : ユーザーあたり 10回/時
   history: 60,  // /history/:index DELETE     : ユーザーあたり 60回/時
+  profile: 10,  // /profile POST             : ユーザーあたり 10回/時
 };
 
 function rateBucket(date = new Date()) {
@@ -221,6 +222,7 @@ export default {
         return await handleSubscriptionRegister(request, env);
       }
       if (path === "/mail-pref")              return await handleMailPref(request, env);
+      if (path === "/profile")                return await handleProfile(request, env);
       if (path === "/history" || path.startsWith("/history/")) return await handleHistory(request, env, path);
       if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
       if (path === "/webhook")               return await handleStripeWebhook(request, env);
@@ -1281,6 +1283,51 @@ async function getProfile(userId, env) {
   } catch {
     return {};
   }
+}
+
+const PROFILE_NAME_MAX = 50;
+
+// GET  /profile → 現在のプロフィール（未設定なら {}）
+// POST /profile → { birthdate?, name? } を検証して保存（既存値へマージ）
+async function handleProfile(request, env) {
+  const userId = await authenticate(request, env);
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+
+  if (request.method === "GET") {
+    return jsonResponse({ profile: await getProfile(userId, env) });
+  }
+
+  if (request.method === "POST") {
+    const body = await request.json().catch(() => ({}));
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return jsonResponse({ error: "Invalid input" }, 400);
+    }
+
+    // 提供されたフィールドのみ検証（birthdate は既存バリデーションを流用 / name は50文字以内・空文字NG）
+    const update = {};
+    if (body.birthdate !== undefined) {
+      if (!validateInput("birthdate", body.birthdate)) return jsonResponse({ error: "Invalid input" }, 400);
+      update.birthdate = body.birthdate;
+    }
+    if (body.name !== undefined) {
+      if (typeof body.name !== "string") return jsonResponse({ error: "Invalid input" }, 400);
+      const name = body.name.trim();
+      if (name.length === 0 || name.length > PROFILE_NAME_MAX) return jsonResponse({ error: "Invalid input" }, 400);
+      update.name = name;
+    }
+    if (Object.keys(update).length === 0) return jsonResponse({ error: "Invalid input" }, 400);
+
+    // レートリミット（ユーザーあたり 10回/時）
+    if (!await checkRateLimit(env, "profile", userId)) {
+      return jsonResponse({ error: "Too many requests" }, 429);
+    }
+
+    const profile = { ...(await getProfile(userId, env)), ...update };
+    await env.MYSTIC_SUBSCRIPTIONS.put(PROFILE_PREFIX + userId, JSON.stringify(profile));
+    return jsonResponse({ success: true, profile });
+  }
+
+  return jsonResponse({ error: "Method Not Allowed" }, 405);
 }
 
 // プロフィール（登録名・生年月日→星座）からメール冒頭の挨拶文を組み立てる。

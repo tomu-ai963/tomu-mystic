@@ -22,7 +22,7 @@
   </div>
 
   <div id="birthdate-panel" class="card" style="max-width:480px;margin:0 auto 1.8rem;">
-    <p style="font-size:.82rem;color:var(--muted);margin:0 0 .75rem;">あなたの生年月日を登録すると各アプリに自動入力されます</p>
+    <p style="font-size:.82rem;color:var(--muted);margin:0 0 .75rem;">生年月日を登録すると各アプリに自動入力されます。お名前は毎朝メールの挨拶に使われます。</p>
     <div id="birthdate-status"></div>
   </div>
 
@@ -115,8 +115,32 @@
 <script>window.MYSTIC_IS_INDEX = true;</script>
 <script src="mystic-login.js"></script>
 <script>
-window.onMysticLogin = () => {
+// プロフィール（生年月日・登録名）のキャッシュ。サーバー(GET /profile)と
+// localStorage を二重管理し、サーバー値を優先しつつ localStorage にも同期する。
+let mysticProfile = {
+  birthdate: localStorage.getItem("mystic_birthdate") || "",
+  name: localStorage.getItem("mystic_name") || "",
+};
+
+async function loadProfileFromServer() {
+  try {
+    const p = await MysticAuth.getProfile();
+    mysticProfile = { birthdate: p.birthdate || "", name: p.name || "" };
+    // サーバーの値を localStorage にも同期（互換性のための二重管理）
+    if (p.birthdate) localStorage.setItem("mystic_birthdate", p.birthdate);
+    if (p.name) localStorage.setItem("mystic_name", p.name);
+  } catch {
+    // 取得失敗時は localStorage の値で継続
+    mysticProfile = {
+      birthdate: localStorage.getItem("mystic_birthdate") || "",
+      name: localStorage.getItem("mystic_name") || "",
+    };
+  }
+}
+
+window.onMysticLogin = async () => {
   document.getElementById("app").style.display = "block";
+  await loadProfileFromServer();
   renderBirthdatePanel();
   renderMailPrefPanel();
   renderMyPage();
@@ -195,36 +219,76 @@ async function renderMailPrefPanel() {
 }
 
 function renderBirthdatePanel() {
-  const saved = localStorage.getItem("mystic_birthdate");
   const status = document.getElementById("birthdate-status");
-  if (saved) {
+  const { birthdate, name } = mysticProfile;
+  if (birthdate) {
     status.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;">
-        <span style="color:var(--text);font-size:.9rem;">📅 ${saved}</span>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div style="color:var(--text);font-size:.9rem;line-height:1.8;">
+          <div>📅 ${escapeMy(birthdate)}</div>
+          ${name ? `<div>👤 ${escapeMy(name)}</div>` : ""}
+        </div>
         <button id="birthdate-change-btn" style="background:none;border:1px solid var(--accent);color:var(--accent);padding:.3rem .8rem;border-radius:.4rem;cursor:pointer;font-size:.8rem;white-space:nowrap;">変更する</button>
       </div>`;
-    document.getElementById("birthdate-change-btn").addEventListener("click", showBirthdateInput);
+    document.getElementById("birthdate-change-btn").addEventListener("click", showProfileInput);
   } else {
-    showBirthdateInput();
+    showProfileInput();
   }
 }
 
-function showBirthdateInput() {
+function showProfileInput() {
   const status = document.getElementById("birthdate-status");
-  const saved = localStorage.getItem("mystic_birthdate");
   status.innerHTML = `
-    <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;">
-      <input type="date" id="birthdate-input" min="1921-01-01" max="2030-12-31"
-        style="flex:1;min-width:140px;padding:.5rem .7rem;background:rgba(130,80,255,.08);border:1px solid rgba(130,80,255,.3);border-radius:.5rem;color:var(--text);font-size:.9rem;"/>
-      <button id="birthdate-save-btn" class="submit-btn" style="padding:.5rem 1.2rem;font-size:.85rem;">保存する</button>
+    <div style="display:flex;flex-direction:column;gap:.7rem;">
+      <div class="field-group">
+        <label for="profile-birthdate-input" style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.3rem;">生年月日</label>
+        <input type="date" id="profile-birthdate-input" min="1921-01-01" max="2030-12-31"
+          style="width:100%;padding:.5rem .7rem;background:rgba(130,80,255,.08);border:1px solid rgba(130,80,255,.3);border-radius:.5rem;color:var(--text);font-size:.9rem;"/>
+      </div>
+      <div class="field-group">
+        <label for="profile-name-input" style="display:block;font-size:.78rem;color:var(--muted);margin-bottom:.3rem;">お名前（任意・毎朝メールの挨拶に使用）</label>
+        <input type="text" id="profile-name-input" maxlength="50" placeholder="例：花子"
+          style="width:100%;padding:.5rem .7rem;background:rgba(130,80,255,.08);border:1px solid rgba(130,80,255,.3);border-radius:.5rem;color:var(--text);font-size:.9rem;"/>
+      </div>
+      <button id="profile-save-btn" class="submit-btn" style="padding:.5rem 1.2rem;font-size:.85rem;">保存する</button>
+      <p id="profile-msg" style="margin:.1rem 0 0;font-size:.8rem;"></p>
     </div>`;
-  if (saved) document.getElementById("birthdate-input").value = saved;
-  document.getElementById("birthdate-save-btn").addEventListener("click", () => {
-    const val = document.getElementById("birthdate-input").value;
-    if (!val) { alert("生年月日を選択してください"); return; }
-    localStorage.setItem("mystic_birthdate", val);
+  if (mysticProfile.birthdate) document.getElementById("profile-birthdate-input").value = mysticProfile.birthdate;
+  if (mysticProfile.name) document.getElementById("profile-name-input").value = mysticProfile.name;
+  document.getElementById("profile-save-btn").addEventListener("click", saveProfileFromPanel);
+}
+
+async function saveProfileFromPanel() {
+  const btn = document.getElementById("profile-save-btn");
+  const msg = document.getElementById("profile-msg");
+  const birthdate = document.getElementById("profile-birthdate-input").value;
+  const name = document.getElementById("profile-name-input").value.trim();
+
+  if (!birthdate) { msg.textContent = "生年月日を選択してください"; msg.style.color = "#ff6b6b"; return; }
+  if (name.length > 50) { msg.textContent = "お名前は50文字以内で入力してください"; msg.style.color = "#ff6b6b"; return; }
+
+  // localStorage に保存（互換性のため従来どおり端末にも保持）
+  localStorage.setItem("mystic_birthdate", birthdate);
+  if (name) localStorage.setItem("mystic_name", name); else localStorage.removeItem("mystic_name");
+  mysticProfile = { birthdate, name };
+
+  btn.disabled = true;
+  btn.textContent = "保存中...";
+  msg.textContent = "";
+  try {
+    // POST /profile も同時に呼ぶ（name は空なら送らない＝サーバーの空文字NGを回避）
+    const payload = name ? { birthdate, name } : { birthdate };
+    const saved = await MysticAuth.saveProfile(payload);
+    mysticProfile = { birthdate: saved.birthdate || birthdate, name: saved.name || name };
     renderBirthdatePanel();
-  });
+    renderMyPage();
+  } catch (err) {
+    // サーバー保存に失敗しても localStorage には保存済み（互換動作は維持）
+    msg.textContent = `サーバーへの保存に失敗しました（${err.message}）。端末には保存しました。`;
+    msg.style.color = "#ff6b6b";
+    btn.disabled = false;
+    btn.textContent = "保存する";
+  }
 }
 
 // ============================================
@@ -283,11 +347,13 @@ function formatHistoryDate(iso) {
 async function renderMyPage() {
   const acc = document.getElementById("mypage-account");
   const email = MysticAuth.getEmail();
-  const birthdate = localStorage.getItem("mystic_birthdate");
+  const birthdate = mysticProfile.birthdate || localStorage.getItem("mystic_birthdate") || "";
+  const name = mysticProfile.name || localStorage.getItem("mystic_name") || "";
   acc.innerHTML = `
     <p style="font-size:.95rem;color:var(--text);margin:0 0 .6rem;">👤 マイページ</p>
     <div style="font-size:.85rem;color:var(--muted);line-height:1.9;">
       <div>メールアドレス：<span style="color:var(--text);">${email ? escapeMy(email) : "—"}</span></div>
+      <div>お名前：<span style="color:var(--text);">${name ? escapeMy(name) : "未登録"}</span></div>
       <div>生年月日：<span style="color:var(--text);">${birthdate ? escapeMy(birthdate) : "未登録"}</span></div>
     </div>`;
 
