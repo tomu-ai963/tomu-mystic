@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://tomu-ai963.github.io/tomu-mystic/sitemap.xml
