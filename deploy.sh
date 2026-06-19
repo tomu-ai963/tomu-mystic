@@ -7,7 +7,7 @@
 set -e
 
 CF_ACCOUNT_ID="b6815ad2ee3097cc0f9e79b8536776b9"
-CF_WORKER_NAME="mystic-system-worker"
+CF_WORKER_NAME="tomu-mystic-worker"
 WORKER_FILE="tomu-mystic-worker.js"
 
 # 必須: Cloudflare API Token（Workers Script Edit権限）

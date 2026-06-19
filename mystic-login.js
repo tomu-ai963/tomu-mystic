@@ -5,7 +5,7 @@
 // Authorization: Bearer で伝送する。
 // ============================================
 
-const WORKER_URL = "https://mystic-system-worker.inverted-triangle-leef.workers.dev";
+const WORKER_URL = "https://tomu-mystic-worker.inverted-triangle-leef.workers.dev";
 
 // 旧Service Workerの自己修復。
 // 過去の sw.js は外部Worker APIへのクロスオリジン呼び出しをインターセプトしており、

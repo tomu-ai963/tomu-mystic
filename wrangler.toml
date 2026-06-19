@@ -1,4 +1,4 @@
-name = "mystic-system-worker"
+name = "tomu-mystic-worker"
 main = "tomu-mystic-worker.js"
 compatibility_date = "2024-01-01"
 no_bundle = true

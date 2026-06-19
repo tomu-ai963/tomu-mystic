@@ -8,7 +8,7 @@
 $ErrorActionPreference = 'Stop'
 
 $CF_ACCOUNT_ID  = "b6815ad2ee3097cc0f9e79b8536776b9"
-$CF_WORKER_NAME = "mystic-system-worker"
+$CF_WORKER_NAME = "tomu-mystic-worker"
 $WORKER_FILE    = "tomu-mystic-worker.js"
 $KV_NAMESPACE_ID = "5e1c00cba16d46119b2123dc4dd23322"
 
