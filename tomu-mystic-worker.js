@@ -5,16 +5,20 @@
 
 // --------------------------------------------------------------------------
 // データストア集約スキーマ（READINGS集約・整理）
-// 永続データは D1 を使わず、単一 KV ネームスペース MYSTIC_SUBSCRIPTIONS に
-// キープレフィックスで集約している。占い種別の定義は下記 READINGS コード表に
-// 一元化され（cf. refactor ab4badc）、占い結果の履歴は history:<userId> 単一
-// 構造に集約されている（分散テーブルは存在しない）。
+// 占い結果の履歴は D1 集約テーブル readings（1占い=1行）に正規化して集約する。
+// 旧構成（KV history:<userId> のユーザー別JSON配列）からは Worker 側の
+// 「読み取り時バックフィル」で無損失移行され、D1 未バインド/障害時は KV に
+// フォールバックする。占い種別の定義は下記 READINGS コード表に一元化（cf. ab4badc）。
 //
+// D1: tomu-mystic-db / binding MYSTIC_DB（migrations/0001_create_readings.sql）
+//   readings(id, user_id, action, result, extra(JSON), created_at)  ← 占い結果履歴（集約先）
+//
+// KV: MYSTIC_SUBSCRIPTIONS（id 5e1c00…）— セッション/設定/コミュニティ + 履歴の移行元
 //   <userId>                         → サブスクリプション { active, plan, expires, createdAt }
 //   session:<sessionId>              → ログインセッション
 //   mail_pref:<userId>               → 毎朝メール設定 { enabled, hour, apps }
 //   profile:<userId>                 → プロフィール { name, birthdate, ... }
-//   history:<userId>                 → 占い結果履歴 [{ action, result, createdAt, extra }]（新しい順・最大30件・TTLなし永続）
+//   history:<userId>                 → 旧・占い結果履歴（D1へ移行。フォールバック/移行元として保持）
 //   rate:<type>:<id>:<YYYY-MM-DD-HH> → レートリミットカウンタ（expirationTtl=3600）
 //   feed:index / post:<id> / like:<postId>:<userId> → コミュニティ（みんなの占い結果）
 //
@@ -635,16 +639,43 @@ async function handleMailPref(request, env) {
 }
 
 // ============================================
-// 占い履歴
-// KVキー: history:<userId> → 直近 HISTORY_MAX 件の配列（新しい順）
-// 各要素: { action, result, createdAt, extra }
-// 永続保存（expirationTtl なし）。MYSTIC_SUBSCRIPTIONS KV を流用。
+// 占い履歴（集約テーブル D1 readings）
+// 集約後: D1 テーブル readings に 1占い=1行で保存。
+// 移行互換: D1 を主とし、未移行ユーザーは KV history:<userId> から読み取り時に
+//          D1 へバックフィル（無損失）。D1 未バインド/障害時は KV にフォールバック。
+// レスポンス形状（{action, result, createdAt, extra}）は旧構成と完全互換。
 // ============================================
 
-const HISTORY_PREFIX = "history:";
+const HISTORY_PREFIX = "history:"; // 旧構成（KV）— フォールバック/移行元として保持
 const HISTORY_MAX = 30;
 
-async function getHistory(userId, env) {
+function hasD1(env) { return !!(env && env.MYSTIC_DB); }
+function safeJsonParse(s, fallback) { try { return JSON.parse(s); } catch { return fallback; } }
+function stripId(r) { return { action: r.action, result: r.result, createdAt: r.createdAt, extra: r.extra }; }
+
+// D1 から新しい順に取得（id 付き・最大 HISTORY_MAX 件）
+async function d1GetRows(env, userId) {
+  const { results } = await env.MYSTIC_DB
+    .prepare("SELECT id, action, result, extra, created_at FROM readings WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?")
+    .bind(userId, HISTORY_MAX).all();
+  return (results || []).map(r => ({
+    id: r.id, action: r.action, result: r.result, createdAt: r.created_at, extra: safeJsonParse(r.extra, {}),
+  }));
+}
+
+// KV(旧構成)→D1 への読み取り時バックフィル（無損失移行）。list は新しい順。
+async function d1Backfill(env, userId, list) {
+  if (!list || !list.length) return;
+  const stmt = env.MYSTIC_DB.prepare(
+    "INSERT INTO readings (user_id, action, result, extra, created_at) VALUES (?, ?, ?, ?, ?)");
+  // 古い順に INSERT して id 昇順＝時系列にそろえる
+  const batch = [...list].reverse().map(e =>
+    stmt.bind(userId, e.action, e.result, JSON.stringify(e.extra || {}), e.createdAt || new Date().toISOString()));
+  await env.MYSTIC_DB.batch(batch);
+}
+
+// 旧 KV 構成の取得/保存（フォールバック用）
+async function kvGetHistory(userId, env) {
   try {
     const data = await env.MYSTIC_SUBSCRIPTIONS.get(HISTORY_PREFIX + userId);
     if (!data) return [];
@@ -654,18 +685,56 @@ async function getHistory(userId, env) {
     return [];
   }
 }
-
-// 占い結果を履歴へ追加（新しい順）。HISTORY_MAX 超過分は古いものから破棄。
-// 保存失敗は占い結果の返却を妨げない（ベストエフォート）。
-async function saveHistory(env, userId, entry) {
+async function kvSaveHistory(env, userId, entry) {
   try {
-    const list = await getHistory(userId, env);
+    const list = await kvGetHistory(userId, env);
     list.unshift(entry);
     if (list.length > HISTORY_MAX) list.length = HISTORY_MAX;
     await env.MYSTIC_SUBSCRIPTIONS.put(HISTORY_PREFIX + userId, JSON.stringify(list));
   } catch (err) {
-    console.error(`履歴保存失敗 (${userId}): ${err && err.message}`);
+    console.error(`履歴保存失敗(KV) (${userId}): ${err && err.message}`);
   }
+}
+
+async function getHistory(userId, env) {
+  if (hasD1(env)) {
+    try {
+      const rows = await d1GetRows(env, userId);
+      if (rows.length > 0) return rows.map(stripId);
+      // D1 が空 → 未移行ユーザーの可能性。KV にあれば読み取り時バックフィル。
+      const legacy = await kvGetHistory(userId, env);
+      if (legacy.length > 0) {
+        try { await d1Backfill(env, userId, legacy); } catch (e) { console.error("D1バックフィル失敗:", e && e.message); }
+        return legacy;
+      }
+      return [];
+    } catch (err) {
+      console.error(`D1履歴取得失敗, KVフォールバック (${userId}): ${err && err.message}`);
+      return await kvGetHistory(userId, env);
+    }
+  }
+  return await kvGetHistory(userId, env);
+}
+
+// 占い結果を履歴へ追加（新しい順）。HISTORY_MAX 超過分は古いものから破棄。
+// 保存失敗は占い結果の返却を妨げない（ベストエフォート）。
+async function saveHistory(env, userId, entry) {
+  if (hasD1(env)) {
+    try {
+      await env.MYSTIC_DB.prepare(
+        "INSERT INTO readings (user_id, action, result, extra, created_at) VALUES (?, ?, ?, ?, ?)")
+        .bind(userId, entry.action, entry.result, JSON.stringify(entry.extra || {}), entry.createdAt || new Date().toISOString())
+        .run();
+      // HISTORY_MAX 超過分（古い順）を削除してストレージ肥大を防止
+      await env.MYSTIC_DB.prepare(
+        "DELETE FROM readings WHERE user_id = ? AND id NOT IN (SELECT id FROM readings WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)")
+        .bind(userId, userId, HISTORY_MAX).run();
+      return;
+    } catch (err) {
+      console.error(`D1履歴保存失敗, KVフォールバック (${userId}): ${err && err.message}`);
+    }
+  }
+  await kvSaveHistory(env, userId, entry);
 }
 
 // GET /history          → 履歴一覧
@@ -690,7 +759,26 @@ async function handleHistory(request, env, path) {
     return jsonResponse({ error: "Too many requests" }, 429);
   }
 
-  const list = await getHistory(userId, env);
+  if (hasD1(env)) {
+    try {
+      let rows = await d1GetRows(env, userId);
+      if (rows.length === 0) {
+        // 未移行ユーザーは先に KV からバックフィルしてから削除
+        const legacy = await kvGetHistory(userId, env);
+        if (legacy.length > 0) { await d1Backfill(env, userId, legacy); rows = await d1GetRows(env, userId); }
+      }
+      if (index >= rows.length) return jsonResponse({ error: "Not Found" }, 404);
+      await env.MYSTIC_DB.prepare("DELETE FROM readings WHERE id = ? AND user_id = ?")
+        .bind(rows[index].id, userId).run();
+      const after = (await d1GetRows(env, userId)).map(stripId);
+      return jsonResponse({ success: true, history: after });
+    } catch (err) {
+      console.error(`D1履歴削除失敗, KVフォールバック (${userId}): ${err && err.message}`);
+      // フォールスルー → KV
+    }
+  }
+
+  const list = await kvGetHistory(userId, env);
   if (index >= list.length) return jsonResponse({ error: "Not Found" }, 404);
   list.splice(index, 1);
   try {
