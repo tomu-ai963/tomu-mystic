@@ -3,6 +3,25 @@
 // ES Module format for Cloudflare Workers
 // ============================================
 
+// --------------------------------------------------------------------------
+// データストア集約スキーマ（READINGS集約・整理）
+// 永続データは D1 を使わず、単一 KV ネームスペース MYSTIC_SUBSCRIPTIONS に
+// キープレフィックスで集約している。占い種別の定義は下記 READINGS コード表に
+// 一元化され（cf. refactor ab4badc）、占い結果の履歴は history:<userId> 単一
+// 構造に集約されている（分散テーブルは存在しない）。
+//
+//   <userId>                         → サブスクリプション { active, plan, expires, createdAt }
+//   session:<sessionId>              → ログインセッション
+//   mail_pref:<userId>               → 毎朝メール設定 { enabled, hour, apps }
+//   profile:<userId>                 → プロフィール { name, birthdate, ... }
+//   history:<userId>                 → 占い結果履歴 [{ action, result, createdAt, extra }]（新しい順・最大30件・TTLなし永続）
+//   rate:<type>:<id>:<YYYY-MM-DD-HH> → レートリミットカウンタ（expirationTtl=3600）
+//   feed:index / post:<id> / like:<postId>:<userId> → コミュニティ（みんなの占い結果）
+//
+// 占い種別の正規名（action）は ALLOWED_ACTIONS / READINGS のキーが正、
+// 履歴・メール表示名は DAILY_MAIL_APPS 等の表示テーブルが担う。
+// --------------------------------------------------------------------------
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
