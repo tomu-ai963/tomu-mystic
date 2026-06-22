@@ -128,6 +128,7 @@ const RATE_LIMITS = {
   profile: 10,  // /profile POST             : ユーザーあたり 10回/時
   communityPost: 10, // /community/post POST  : ユーザーあたり 10回/時
   communityLike: 60, // /community/like POST  : ユーザーあたり 60回/時
+  stripe: 10,   // /stripe/checkout          : ユーザーあたり 10回/時（外部Stripe API乱用防止）
 };
 
 function rateBucket(date = new Date()) {
@@ -822,6 +823,10 @@ async function handleCommunityDelete(env, userId, id) {
 async function handleStripeCheckout(request, env) {
   const userId = await authenticate(request, env);
   if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+  // レートリミット（外部Stripe API呼び出し: ユーザーあたり 10回/時）
+  if (!await checkRateLimit(env, "stripe", userId)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
   const { successUrl, cancelUrl } = await request.json();
 
   const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
