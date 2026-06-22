@@ -113,6 +113,27 @@ function validateMysticBody(action, body) {
   return true;
 }
 
+// userId（セッションID/メール等の識別子）: 非空・1〜254字・制御文字なし。
+// KVキーやStripe metadataに使われるため、改行や制御文字の混入を弾く。
+function isValidUserId(v) {
+  return typeof v === "string" && v.length > 0 && v.length <= 254 && [...v].every(ch => { const c = ch.charCodeAt(0); return c >= 0x20 && c !== 0x7f; });
+}
+
+// プラン名: 未指定可。指定時は英数・ハイフン・アンダースコアのみ 1〜32字。
+function isValidPlan(v) {
+  return v === undefined || (typeof v === "string" && /^[a-z0-9_-]{1,32}$/i.test(v));
+}
+
+// リダイレクトURL（Stripe success/cancel）: http(s) かつ許可オリジン or リクエスト自身のオリジンのみ。
+// 外部オリジンへの誘導（オープンリダイレクト／XSS）を弾く。
+function isAllowedRedirectUrl(raw, selfOrigin) {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+    return ALLOWED_REDIRECT_ORIGINS.includes(u.origin) || u.origin === selfOrigin;
+  } catch { return false; }
+}
+
 // ============================================
 // レートリミット（KVベース）
 // キー: rate:{type}:{identifier}:{YYYY-MM-DD-HH}（UTC時）、expirationTtl=3600で自動失効。
@@ -280,13 +301,25 @@ async function checkSubscription(userId, env) {
 }
 
 async function handleSubscriptionCheck(request, env) {
-  const { userId } = await request.json();
-  const isSubscribed = await checkSubscription(userId, env);
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
+  if (!body || typeof body !== "object" || !isValidUserId(body.userId)) {
+    return jsonResponse({ error: "Invalid userId" }, 400);
+  }
+  const isSubscribed = await checkSubscription(body.userId, env);
   return jsonResponse({ subscribed: isSubscribed });
 }
 
 async function handleSubscriptionRegister(request, env) {
-  const { userId, plan } = await request.json();
+  let parsed;
+  try { parsed = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
+  if (!parsed || typeof parsed !== "object" || !isValidUserId(parsed.userId)) {
+    return jsonResponse({ error: "Invalid userId" }, 400);
+  }
+  if (!isValidPlan(parsed.plan)) {
+    return jsonResponse({ error: "Invalid plan" }, 400);
+  }
+  const { userId, plan } = parsed;
   const expires = new Date();
   expires.setMonth(expires.getMonth() + 1);
   await env.MYSTIC_SUBSCRIPTIONS.put(userId, JSON.stringify({
@@ -827,7 +860,14 @@ async function handleStripeCheckout(request, env) {
   if (!await checkRateLimit(env, "stripe", userId)) {
     return jsonResponse({ error: "Too many requests" }, 429);
   }
-  const { successUrl, cancelUrl } = await request.json();
+  let body;
+  try { body = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
+  const { successUrl, cancelUrl } = body || {};
+  // success/cancel は外部リダイレクト先。許可オリジン以外はオープンリダイレクト/XSS防止のため弾く。
+  const selfOrigin = new URL(request.url).origin;
+  if (!isAllowedRedirectUrl(successUrl, selfOrigin) || !isAllowedRedirectUrl(cancelUrl, selfOrigin)) {
+    return jsonResponse({ error: "Invalid redirect URL" }, 400);
+  }
 
   const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
