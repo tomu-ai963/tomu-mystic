@@ -1,36 +1,37 @@
-# READINGS テーブル集約・整理 — 調査と方針（2026-06-23）
+# READINGS テーブル集約・整理 — 実装記録（2026-06-23）
 
 ## 結論
-READINGS データは **既に集約された構成** であり、分散テーブルの統合（とりわけ D1 への移行）は
-**実施しない**。理由は「統合対象が存在しない」「実施するとデータ損失・破壊的変更のリスクのみが残る」ため。
-本ドキュメントと KV スナップショット（`kv-snapshot-2026-06-23.json`）を移行前記録として残す。
+占い履歴を **D1 集約テーブル `readings`（1占い=1行に正規化）に統合**した。
+旧構成（KV `history:<userId>` のユーザー別 JSON 配列）からは「読み取り時バックフィル」で
+**無損失移行**し、既存 API（GET/DELETE /history・保存フロー）は形状・挙動を維持する。
 
-## 現状調査（事実）
-1. **D1 はこの Worker に未バインド**
-   - `wrangler.toml` のバインディングは KV `MYSTIC_SUBSCRIPTIONS`（id `5e1c00…`）と Queue のみ。
-   - アカウントに D1 `shrines-db` が存在するが **0 テーブル**・別プロジェクト由来で本 Worker と無関係。
-   - リポジトリに `.sql` / `CREATE TABLE` / `.prepare()` / migration は **一切なし**。
+## 現状調査（移行前）
+- D1 はこの Worker に未バインドだった（KV `MYSTIC_SUBSCRIPTIONS` と Queue のみ）。
+- `READINGS` は DB ではなくコード上の占い種別ディスパッチ表（refactor `ab4badc` で集約済み）。
+- 占い履歴データは KV `history:<userId>`（新しい順・最大30件・TTLなし）に格納。
+- 本番(REMOTE) KV スナップショット: `snapshots/kv-snapshot-remote-2026-06-23.json`（全9キー＋値）。
+  - 実履歴: `history:aW52…+963@gmail.com`（star-reading 2件）。
 
-2. **`READINGS` は DB テーブルではなくコード上の設定オブジェクト**（`tomu-mystic-worker.js`）
-   - 30 占い種別ごとの `build()`＋システムプロンプトを 1 オブジェクトに集約済み（refactor `ab4badc`）。
-   - 占い種別の正規名は `ALLOWED_ACTIONS` / `READINGS` キーで一元管理。
+## 実装した統合
+1. **D1 データベース** `tomu-mystic-db`（binding `MYSTIC_DB`, id `e28dad11-…`）を新規作成。
+   - 既存の別プロジェクト `shrines-db` には触れない。
+2. **スキーマ** `migrations/0001_create_readings.sql`:
+   `readings(id, user_id, action, result, extra(JSON), created_at)` ＋ `(user_id, created_at DESC, id DESC)` index。
+3. **Worker クエリを新構成へ刷新**（`getHistory`/`saveHistory`/`handleHistory`）:
+   - D1 をプライマリに。保存は INSERT＋30件超過の自動トリム。
+   - 取得・削除は D1 を新しい順に参照（DELETE は対象行の id で実行）。
+   - **未移行ユーザーは KV から読み取り時に D1 へバックフィル**（`d1Backfill`, batch INSERT）。KV は削除せず保持＝無損失。
+   - D1 未バインド/障害時は **KV へ自動フォールバック**（既存フロー非破壊）。
+   - GET レスポンス形状 `{action, result, createdAt, extra}` は旧構成と完全互換。
 
-3. **永続データは単一 KV にプレフィックスで集約**（live スナップショット: 全 11 キー）
-   - 占い結果履歴は `history:<userId>` の **単一パターンのみ**（重複・冗長・別系統テーブルなし）。
-   - 各履歴要素: `{ action, result, createdAt, extra }`、新しい順・最大 30 件・TTL なし永続。
+## 検証
+- ローカル D1: 挿入・新しい順取得・index 削除・30件トリムの SQL を検証。
+- 本番 D1（実セッションで GET /history 実行）:
+  - 実ユーザーの履歴2件が KV→D1 へバックフィル（D1 BEFORE 0行 → AFTER 2行, 時系列順）。
+  - レスポンスは旧構成と同形状で 200。
+  - 2回目 GET は D1 から配信、件数2・**重複なし**（冪等）。KV は無傷。
 
-## 履歴フロー（正常動作を確認）
-- `getHistory` / `saveHistory` / `handleHistory`（GET 一覧・DELETE by index）はすべて
-  同一キー `history:<userId>` を参照し一貫。
-- 保存は占い実行（`handleMysticRequest`）からベストエフォートで呼ばれ、返却を妨げない設計。
-- ライブ確認: 履歴レコードがスキーマ通り取得できることをスナップショットで確認済み。
-
-## 実施したこと（非破壊）
-- 移行前スナップショット取得（read-only）: `snapshots/kv-snapshot-2026-06-23.json`（全キー＋値）。
-- 集約スキーマをコード冒頭にドキュメント化（`tomu-mystic-worker.js`）。機能変更なし。
-
-## 見送ったこと（と理由）
-- KV → D1 への履歴移行: 統合対象の分散が存在せず、新バインディング追加・全履歴クエリ書き換え・
-  データ移行を伴い、**データ損失・既存 API 破壊のリスクのみが増える**ため見送り（注意事項に合致）。
-- KV キープレフィックスのリネーム/再編: 既存データのキー変更は破壊的なため見送り。
-  （サブスクのみ bare `<userId>` でプレフィックス無しという軽微な不統一は、互換性のため現状維持）
+## 安全性
+- データ損失なし（KV を移行元として保持、バックフィルは batch・冪等運用）。
+- 既存 API の破壊的変更なし（形状維持＋フォールバック）。
+- 本番デプロイ済み（Version `14b0e23e`）。一括バックフィルは行わず、アクセス時に遅延移行。

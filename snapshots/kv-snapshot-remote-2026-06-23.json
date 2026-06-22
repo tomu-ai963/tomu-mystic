@@ -1,0 +1,17 @@
+{
+  "namespace": "5e1c00cba16d46119b2123dc4dd23322",
+  "scope": "REMOTE(production)",
+  "note": "READINGS集約 移行前スナップショット（本番）",
+  "keyCount": 9,
+  "entries": {
+    "aW52ZXJ0ZWQudHJpYW5nbGUubGVlZis5NjNAZ21haWwuY29t": "{\"active\":true,\"plan\":\"mystic\",\"expires\":\"2027-06-01T00:00:00.000Z\",\"createdAt\":\"2026-05-15T00:00:00.000Z\"}",
+    "aW52ZXJ0ZWQudHJpYW5nbGUubGVlZkBnbWFpbC5jb20=": "active",
+    "feed:index": "[]",
+    "history:aW52ZXJ0ZWQudHJpYW5nbGUubGVlZis5NjNAZ21haWwuY29t": "[{\"action\":\"star-reading\",\"result\":\"# ✨ 本日の星からのメッセージ ✨\\n\\n山羊座のあなたへ——\\n\\n静寂の中に真実は宿ります。この冬の終わりに、あなたの魂は深き内省の時を迎えています。土の星座に生まれし者よ、今宵の星々は、あなたの堅固な基盤をさらに磨く光をもたらしています。\\n\\n長きを歩みし年輪の中で、あなたが築いてきたすべてが、やがて花開く日まで、もう歩み続けるしかありません。試練もまた、宝石を磨く砥石。星々は語りかけています——**今、あなたが捨てるべきものを見つめよ**と。\\n\\n新たなる門出を前に、過去への執着を手放すとき。そこに初まりの光が灯ります。山羊座よ、あなたの忍耐は必ず報われん。\\n\\n🌙 *星々は永遠にあなたを見守っています*\",\"createdAt\":\"2026-06-21T14:16:16.818Z\",\"extra\":{\"sign\":\"山羊座\"}},{\"action\":\"star-reading\",\"result\":\"# ✨ 本日の星からのメッセージ ✨\\n\\n山羊座のあなたへ—\\n\\n冬至を超えたこの季節、太陽は静かにあなたの本質を照らし続けています。厳しき山羊の道を歩むあなたは、この刻、深い沈黙の中に隠された光を感じるでしょう。\\n\\n時間という長き河の中で、あなたは着実に歩を進めてきました。その堅実さは、やがて花開く種となりて、思わぬ幸運へと繋がりゆきます。\\n\\n本日、星々はささやきかけます—*焦らずとも、すべては最良の時を待っている*と。あなたの忍耐こそが、最大の力なり。\\n\\n心の奥底にしまわれた野心を、静かに磨き続けてください。冬の星は必ず、春の約束を携えて輝くのです。\\n\\n🌙✨\",\"createdAt\":\"2026-06-15T13:58:45.596Z\",\"extra\":{\"sign\":\"山羊座\"}}]",
+    "mail_pref:aW52ZXJ0ZWQudHJpYW5nbGUubGVlZis5NjNAZ21haWwuY29t": "{\"enabled\":true,\"apps\":[\"tarot_draw\"],\"hour\":7}",
+    "mail_pref:dG9tdS5haS5kZXZAZ21haWwuY29t": "{\"enabled\":false,\"apps\":[],\"hour\":7}",
+    "profile:aW52ZXJ0ZWQudHJpYW5nbGUubGVlZis5NjNAZ21haWwuY29t": "{\"birthdate\":\"1990-12-31\"}",
+    "session:6a472ed7-0267-4662-8d27-d84b5ccc8c11": "{\"userId\":\"aW52ZXJ0ZWQudHJpYW5nbGUubGVlZis5NjNAZ21haWwuY29t\",\"expiry\":1782485374707}",
+    "test": "{\"active\":true,\"plan\":\"mystic\",\"expires\":\"2026-05-03T11:43:28.841Z\",\"createdAt\":\"2026-04-03T11:43:28.841Z\"}"
+  }
+}
