@@ -12,13 +12,13 @@
 //   ANTHROPIC_API_KEY=xxx node tools/check-free-fidelity.mjs
 //   ANTHROPIC_API_KEY=xxx node tools/check-free-fidelity.mjs claude-sonnet-5   # 比較用
 //
-// ※ 実際に API を叩くので課金される。29件で概算 10円前後（Haiku 4.5）。
+// ※ 実際に API を叩くので課金される。29件で概算 10円前後（Haiku 4.5 時点。5.5 はさらに安い見込み）。
 // ※ キーは環境変数から渡すこと。引数やファイルに実値を書かない。
 // ============================================
 
 import { READINGS } from "../readings-data.js";
 
-const MODEL = process.argv[2] || "claude-haiku-4-5";
+const MODEL = process.argv[2] || "claude-haiku-5-5";
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
 if (!API_KEY) {
@@ -81,6 +81,9 @@ async function callModel(system, user) {
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 800,
+      // 本番の callHaiku と同じ条件で比較する
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
       system: system + ABSOLUTE_RULE,
       messages: [{ role: "user", content: user }],
     }),

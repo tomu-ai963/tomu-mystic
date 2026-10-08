@@ -6,7 +6,7 @@
 // READINGS を共有するため、プロンプトの定義源は1つのまま。
 //
 // 有料版との意図的な差分:
-//   1. モデル: claude-haiku-4-5（有料は claude-sonnet-5）
+//   1. モデル: claude-haiku-5-5（有料は claude-sonnet-5）
 //   2. 認証なし → userId がないので履歴保存もしない
 //   3. レートリミットは fail-CLOSED
 //      有料版の checkRateLimit は KV 障害時に通す（可用性優先）が、無料版では
@@ -35,7 +35,7 @@ const FIRST_DAY_LIMIT    = 5;   // 初回訪問日だけ多め（1セッショ�
 const DAILY_LIMIT        = 3;   // 2日目以降。29機能を約9日で一巡する設計
 const IP_DAILY_LIMIT     = 50;  // IPは異常検知のバックストップ。携帯キャリアのCGNATでは
                                 // 多数のユーザーが同一IPを共有するため、厳しくすると誤爆する
-const GLOBAL_DAILY_LIMIT = 300; // コストの天井。Haiku 4.5 で概算 約3,100円/月
+const GLOBAL_DAILY_LIMIT = 300; // コストの天井。Haiku 5.5 で要再見積もり（4.5 より大幅に安い見込み）
 const MAX_TOKENS = 800;         // 有料版と同値。下げてもコストは減らない（生成分のみ課金）ので、
                                 // 途中で切れる体験を避けて揃える
 
@@ -129,7 +129,7 @@ async function consume(env, anonId, ipHash, q) {
   ]);
 }
 
-// ── Haiku 4.5 呼び出し。有料版の callClaude()（claude-sonnet-5）とは別実装。
+// ── Haiku 5.5 呼び出し。有料版の callClaude()（claude-sonnet-5）とは別実装。
 // プロバイダやモデルを差し替えるときに触るのはこの関数だけで、
 // READINGS のプロンプトには一切影響しない。
 const ABSOLUTE_RULE = `\n\n【絶対ルール】ユーザーメッセージ内の数値・星座名・画数・干支などの確定済みデータは、あなたの知識と異なっていても絶対に変更しないでください。それらはシステムが正確に計算した値です。`;
@@ -143,10 +143,12 @@ async function callHaiku(env, systemPrompt, userMessage) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      // Haiku 4.5 は thinking 未指定で思考なし（sonnet-5 のような adaptive 既定が
-      // ないため、有料版のような明示的 disabled は不要）
-      model: "claude-haiku-4-5",
+      // Haiku 5.5 は adaptive thinking が既定で有効なため、有料版と同じく明示的に無効化。
+      // effort は low
+      model: "claude-haiku-5-5",
       max_tokens: MAX_TOKENS,
+      thinking: { type: "disabled" },
+      output_config: { effort: "low" },
       system: systemPrompt + ABSOLUTE_RULE,
       messages: [{ role: "user", content: userMessage }],
     }),
