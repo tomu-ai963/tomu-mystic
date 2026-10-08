@@ -110,7 +110,7 @@ Cloudflare Dashboard > Workers & Pages > tomu-mystic-worker > Logs で参照。
 | 認証 | マジックリンク + サブスク | なし（localStorage の匿名ID） |
 | 占い数 | 30 | 29（Vision の `palm-reading` は除外） |
 | 回数 | 20回/時 | 初日5回・以降3回/日（JST 0時リセット） |
-| 全体上限 | なし | 300回/日（コスト天井・Haiku 5.5 で要再見積もり（4.5 より大幅に安い見込み）） |
+| 全体上限 | なし | 300回/日（コスト天井・概算 約300円/月（Haiku 5.5・check:free-fidelity 実測：1回 入力約227/出力約381トークン、1ドル160円）） |
 | KV 障害時 | 通す（fail-open・可用性優先） | **止める（fail-closed）** |
 | 履歴・メール・コミュニティ・MCP | あり | なし |
 

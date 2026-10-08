@@ -35,7 +35,7 @@ const FIRST_DAY_LIMIT    = 5;   // 初回訪問日だけ多め（1セッショ�
 const DAILY_LIMIT        = 3;   // 2日目以降。29機能を約9日で一巡する設計
 const IP_DAILY_LIMIT     = 50;  // IPは異常検知のバックストップ。携帯キャリアのCGNATでは
                                 // 多数のユーザーが同一IPを共有するため、厳しくすると誤爆する
-const GLOBAL_DAILY_LIMIT = 300; // コストの天井。Haiku 5.5 で要再見積もり（4.5 より大幅に安い見込み）
+const GLOBAL_DAILY_LIMIT = 300; // コストの天井。概算 約300円/月（Haiku 5.5・check:free-fidelity 実測：1回 入力約227/出力約381トークン、1ドル160円）
 const MAX_TOKENS = 800;         // 有料版と同値。下げてもコストは減らない（生成分のみ課金）ので、
                                 // 途中で切れる体験を避けて揃える
 
