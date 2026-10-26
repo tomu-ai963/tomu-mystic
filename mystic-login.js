@@ -332,7 +332,7 @@ function renderSubscriptionModal() {
         </ul>
         <div class="mystic-price-badge">月額 ¥780（税込）</div>
         <button id="mystic-subscribe-btn" class="mystic-modal-btn">
-          今すぐ始める ✦
+          準備中 ✦
         </button>
         <p id="mystic-sub-error" class="mystic-modal-error"></p>
         <p class="mystic-modal-note">※本サービスは統計的パターンとAIによる自己分析コンテンツです</p>
@@ -342,21 +342,9 @@ function renderSubscriptionModal() {
   `;
   document.body.appendChild(modal);
 
-  document.getElementById("mystic-subscribe-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("mystic-subscribe-btn");
-    const errEl = document.getElementById("mystic-sub-error");
-    btn.disabled = true;
-    btn.textContent = "決済ページへ移動中...";
-    errEl.textContent = "";
-
-    try {
-      await MysticAuth.startCheckout();
-      // startCheckout内でlocation.hrefが変わるのでここには到達しない
-    } catch (err) {
-      errEl.textContent = err.message;
-      btn.disabled = false;
-      btn.textContent = "今すぐ始める ✦";
-    }
+  // 決済サービス選定中（Stripeはスピリチュアル系禁止のため不採用）。checkoutは呼ばない
+  document.getElementById("mystic-subscribe-btn").addEventListener("click", () => {
+    showToast("有料プランは現在準備中です。もうしばらくお待ちください。");
   });
 }
 
