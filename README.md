@@ -70,8 +70,8 @@ npx wrangler secret list
 
 > **Stripe は不採用**（占い系が禁止業種）。`STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` /
 > `MYSTIC_PRICE_ID` は不要で、`/stripe/checkout` はルートごと閉じてある（503）。
-> 2026-10-27 時点で本番にはこの3つが残っているので、ダッシュボードから削除する
-> （`wrangler secret delete` は deny 設定のため）。`stripe.js` の Checkout / Webhook 実装は
+> 本番からは 2026-10-27 にダッシュボードで削除済み（`wrangler secret delete` は deny 設定のため）。
+> そのため `/webhook` は 500（Webhook 未設定）を返す。`stripe.js` の Checkout / Webhook 実装は
 > 決済サービス差し替え時の参考として残している。
 
 ## 有料プランの契約・解約（決済サービス非依存）
