@@ -412,6 +412,7 @@ main {
   border-radius: 16px;
   padding: 2.5rem 2rem;
   max-width: 400px; width: 100%;
+  max-height: calc(100vh - 2rem); overflow-y: auto;
   text-align: center;
 }
 .mystic-modal-star { font-size: 2rem; color: var(--gold); margin-bottom: 1rem; }
@@ -440,6 +441,14 @@ main {
 .mystic-modal-error { color: var(--error); font-size: .82rem; min-height: 1.2em; margin-bottom: .5rem; }
 .mystic-modal-note { color: var(--muted); font-size: .75rem; line-height: 1.6; }
 .mystic-plan-list { list-style: none; text-align: left; margin-bottom: 1.5rem; color: var(--text); font-size: .88rem; line-height: 2; }
+.mystic-confirm-list { text-align: left; margin: 0 0 1.2rem; font-size: .82rem; line-height: 1.7; }
+.mystic-confirm-list dt { color: var(--muted); font-size: .74rem; letter-spacing: .08em; margin-top: .7rem; }
+.mystic-confirm-list dd { color: var(--text); margin: .1rem 0 0; padding-bottom: .5rem; border-bottom: 1px solid var(--border); }
+.mystic-confirm-agree { display: flex; align-items: flex-start; gap: .5rem; text-align: left; font-size: .8rem; line-height: 1.6; color: var(--text); margin-bottom: 1rem; cursor: pointer; }
+.mystic-confirm-agree input { margin-top: .25rem; accent-color: var(--accent); }
+.mystic-confirm-agree a { color: var(--accent); }
+.mystic-modal-link-btn { background: none; border: none; color: var(--muted); font-size: .8rem; font-family: inherit; cursor: pointer; padding: .3rem; }
+.mystic-modal-link-btn:hover { color: var(--accent); }
 
 /* ===== RESPONSIVE ===== */
 @media (max-width: 600px) {

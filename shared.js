@@ -99,6 +99,7 @@ const RATE_LIMITS = {
   communityPost: 10, // /community/post POST  : ユーザーあたり 10回/時
   communityLike: 60, // /community/like POST  : ユーザーあたり 60回/時
   stripe: 10,   // /stripe/checkout          : ユーザーあたり 10回/時（外部Stripe API乱用防止）
+  cancel: 5,    // /subscription/cancel POST : ユーザーあたり 5回/時（受付メール送信を伴う）
 };
 
 function rateBucket(date = new Date()) {

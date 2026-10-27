@@ -23,7 +23,8 @@
 //   readings(id, user_id, action, result, extra(JSON), created_at)  ← 占い結果履歴（集約先）
 //
 // KV: MYSTIC_SUBSCRIPTIONS（id 5e1c00…）— セッション/設定/コミュニティ + 履歴の移行元
-//   <userId>                         → サブスクリプション { active, plan, expires, createdAt }
+//   <userId>                         → サブスクリプション { active, plan, expires, createdAt, cancelRequested?, cancelRequestedAt? }
+//   cancel_req:<userId>              → 解約受付日時（運営者が決済側の継続課金を止めるまでの対応待ち）
 //   session:<sessionId>              → ログインセッション
 //   mail_pref:<userId>               → 毎朝メール設定 { enabled, hour, apps }
 //   profile:<userId>                 → プロフィール { name, birthdate, ... }
@@ -44,7 +45,11 @@ import {
   callClaude, callClaudeVision, escapeHtml,
 } from "./shared.js";
 import { authenticate, handleRequestMagicLink, handleVerify, handleLogout, handleMe } from "./auth.js";
-import { handleSubscriptionCheck, handleSubscriptionRegister, handleStripeCheckout, handleStripeWebhook } from "./stripe.js";
+import {
+  handleSubscriptionCheck, handleSubscriptionRegister,
+  handleSubscriptionStatus, handleSubscriptionCancel,
+  handleStripeWebhook,
+} from "./stripe.js";
 import {
   READINGS, DAILY_MAIL_APPS, MAIL_APP_TO_ACTION,
   getSunSign, TAROT_CARDS, RUNE_NAMES,
@@ -129,17 +134,22 @@ export default {
         }
         return await handleSubscriptionRegister(request, env);
       }
+      if (path === "/subscription/status")   return await handleSubscriptionStatus(request, env);
+      if (path === "/subscription/cancel")   return await handleSubscriptionCancel(request, env);
       if (path === "/mail-pref")              return await handleMailPref(request, env);
       if (path === "/profile")                return await handleProfile(request, env);
       if (path === "/history" || path.startsWith("/history/")) return await handleHistory(request, env, path);
       if (path.startsWith("/community/")) return await handleCommunity(request, env, path);
-      if (path === "/stripe/checkout")       return await handleStripeCheckout(request, env);
+      // Stripe は占い系が禁止業種のため不採用。ボタンを止めても API を直接叩けば
+      // Checkout を作れてしまうので、ルートごと閉じる（実装は stripe.js に残す）
+      if (path === "/stripe/checkout")       return jsonResponse({ error: "有料プランは現在準備中です" }, 503);
       if (path === "/webhook")               return await handleStripeWebhook(request, env);
 
       if (path === "/mcp")                   return await handleMcp(request, env);
 
       if (path === "/legal/tokushoho")       return htmlResponse(MYSTIC_TOKUSHOHO_HTML);
       if (path === "/legal/privacy")         return htmlResponse(MYSTIC_PRIVACY_HTML);
+      if (path === "/legal/terms")           return htmlResponse(MYSTIC_TERMS_HTML);
 
       return jsonResponse({ error: "Not Found" }, 404);
 
@@ -941,36 +951,74 @@ ${MYSTIC_LEGAL_STYLE}
 ${MYSTIC_LEGAL_NAV}
 <main>
   <h1>✦ 特定商取引法に基づく表記</h1>
+  <p class="effective-date">最終改定日：2026年10月27日</p>
   <table>
     <tr>
-      <th>運営者・運営責任者</th>
+      <th>販売事業者</th>
+      <td>藤山　博史（個人事業）</td>
+    </tr>
+    <tr>
+      <th>運営統括責任者</th>
       <td>藤山　博史</td>
     </tr>
     <tr>
       <th>所在地・電話番号</th>
-      <td>請求があった場合には速やかに開示いたします</td>
+      <td>請求があった場合には遅滞なく開示いたします。下記メールアドレスまでご請求ください</td>
     </tr>
     <tr>
       <th>メールアドレス</th>
       <td>Inverted.triangle.leef@gmail.com</td>
     </tr>
     <tr>
+      <th>サービス名</th>
+      <td>とむMYSTIC 月額プラン（AIによる占い・自己分析アプリ 全30種）</td>
+    </tr>
+    <tr>
       <th>販売価格</th>
       <td>月額 780円（税込）</td>
     </tr>
     <tr>
+      <th>商品代金以外の必要料金</th>
+      <td>インターネット接続に必要な通信料はお客様のご負担となります</td>
+    </tr>
+    <tr>
       <th>支払方法</th>
-      <td>クレジットカード（Stripe決済）</td>
+      <td>クレジットカード</td>
+    </tr>
+    <tr>
+      <th>支払時期</th>
+      <td>初回はお申し込み時にお支払いいただきます。以降は契約期間の満了ごとに、毎月自動でお支払いいただきます</td>
     </tr>
     <tr>
       <th>サービス提供時期</th>
-      <td>決済完了後即時</td>
+      <td>決済完了後、すぐにご利用いただけます</td>
     </tr>
     <tr>
-      <th>返金・キャンセル</th>
-      <td>月途中のキャンセルによる返金は行いません</td>
+      <th>契約期間・自動更新</th>
+      <td>1ヶ月単位の契約です。解約のお手続きをされるまで、1ヶ月ごとに自動で更新されます</td>
+    </tr>
+    <tr>
+      <th>解約方法</th>
+      <td>ログイン後のマイページにある「解約する」ボタンから、いつでもお手続きいただけます。メール（上記アドレス）でも承ります。<br/>契約期間の満了日までにお手続きいただければ、次回以降のご請求は発生しません</td>
+    </tr>
+    <tr>
+      <th>解約後のご利用</th>
+      <td>解約のお手続き後も、お支払い済みの契約期間の満了日まですべての機能をご利用いただけます</td>
+    </tr>
+    <tr>
+      <th>返品・返金</th>
+      <td>デジタルコンテンツの性質上、お支払い後の返金はいたしません。契約期間の途中で解約された場合も、日割りでの返金はございません。<br/>ただし、二重請求など当方の不備によるご請求については全額返金いたします</td>
+    </tr>
+    <tr>
+      <th>動作環境</th>
+      <td>JavaScript が有効な最新版のブラウザ（Chrome・Safari・Edge・Firefox）</td>
+    </tr>
+    <tr>
+      <th>サービスの性質</th>
+      <td>統計的なパターンとAIによる娯楽・自己分析目的のコンテンツです。未来の出来事や効果を保証するものではありません</td>
     </tr>
   </table>
+  <p>ご利用条件の詳細は<a href="/legal/terms" style="color:var(--accent);">利用規約</a>をご確認ください。</p>
   <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
 </main>
 <footer>© 2026 とむMYSTIC. All rights reserved.</footer>
@@ -989,7 +1037,7 @@ ${MYSTIC_LEGAL_STYLE}
 ${MYSTIC_LEGAL_NAV}
 <main>
   <h1>✦ プライバシーポリシー</h1>
-  <p class="effective-date">制定日：2026年1月1日<br/>最終改定日：2026年9月6日</p>
+  <p class="effective-date">制定日：2026年1月1日<br/>最終改定日：2026年10月27日</p>
 
   <p>とむMYSTIC（以下「本サービス」）は、ユーザーの個人情報の取り扱いについて以下のとおり定めます。</p>
 
@@ -1001,7 +1049,7 @@ ${MYSTIC_LEGAL_NAV}
     <li>生年月日（プロフィールに登録された場合、および占いの入力として送信された場合）</li>
     <li>占いの入力内容および生成された占い結果（履歴として保存します）</li>
     <li>IPアドレス（ログイン用リンクの発行時。不正利用の検知にのみ使用し、1時間で自動的に削除されます）</li>
-    <li>決済関連情報（Stripe社を通じた処理。カード番号等はStripe社が管理し、本サービスは保持しません）</li>
+    <li>決済関連情報（決済代行会社を通じた処理。カード番号等は決済代行会社が管理し、本サービスは保持しません）</li>
     <li>サービス利用状況（AI機能の利用回数・プラン情報）</li>
   </ul>
 
@@ -1031,7 +1079,7 @@ ${MYSTIC_LEGAL_NAV}
   </ul>
   <p>なお、本サービスは以下の外部サービスを利用しています。</p>
   <ul>
-    <li>Stripe, Inc.（決済処理）</li>
+    <li>決済代行会社（決済処理。有料プランの提供開始時に社名を掲載します）</li>
     <li>Anthropic, PBC（AI機能）</li>
     <li>Cloudflare, Inc.（インフラ・ホスティング・データ保管）</li>
     <li>Resend（メール送信。ログイン用リンク・毎朝のメール配信）</li>
@@ -1060,6 +1108,112 @@ ${MYSTIC_LEGAL_NAV}
 
   <h2>8. お問い合わせ</h2>
   <p>個人情報の取り扱いに関するお問い合わせ、および前項のご請求は、下記メールアドレスまでご連絡ください。</p>
+  <p>Inverted.triangle.leef@gmail.com</p>
+
+  <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
+</main>
+<footer>© 2026 とむMYSTIC. All rights reserved.</footer>
+</body>
+</html>`;
+
+// 利用規約。特商法表記・申込前の確認画面（mystic-login.js）と内容をそろえること
+// （料金・自動更新・解約方法・返金の扱いが食い違うと、決済審査でも利用者対応でも問題になる）
+const MYSTIC_TERMS_HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>利用規約 — とむMYSTIC</title>
+${MYSTIC_LEGAL_STYLE}
+</head>
+<body>
+${MYSTIC_LEGAL_NAV}
+<main>
+  <h1>✦ 利用規約</h1>
+  <p class="effective-date">制定日：2026年10月27日</p>
+
+  <p>この利用規約（以下「本規約」）は、藤山 博史（以下「運営者」）が提供する「とむMYSTIC」（以下「本サービス」）の利用条件を定めるものです。本サービスをご利用になる方（以下「ユーザー」）は、本規約に同意したうえでご利用ください。</p>
+
+  <h2>第1条（適用）</h2>
+  <p>本規約は、本サービスの利用に関する運営者とユーザーとの間の一切の関係に適用されます。運営者が本サービス上に掲載する特定商取引法に基づく表記およびプライバシーポリシーは、本規約の一部を構成します。</p>
+
+  <h2>第2条（本サービスの内容と性質）</h2>
+  <ul>
+    <li>本サービスは、生年月日・入力内容などをもとに、統計的なパターンとAI（人工知能）によって占い・自己分析の文章を生成する、娯楽・自己分析目的のサービスです。</li>
+    <li>本サービスの結果は、未来の出来事を予言・断定するものではなく、運勢の改善や願望の実現などの効果を保証するものでもありません。</li>
+    <li>本サービスの結果は、医療・健康・法律・投資・税務などの専門的な助言に代わるものではありません。重要な判断は、必ず専門家にご相談ください。</li>
+    <li>AIが生成する文章には、不正確な内容や意図しない表現が含まれる場合があります。</li>
+  </ul>
+
+  <h2>第3条（アカウント）</h2>
+  <ul>
+    <li>ユーザーは、ご自身のメールアドレスで本サービスにログインします。ログイン用のリンクは、ご入力のメールアドレスに送信されます。</li>
+    <li>ユーザーは、ご自身のメールアドレスおよびログイン状態を自己の責任で管理するものとします。第三者による利用によって生じた損害について、運営者は運営者に故意または重大な過失がある場合を除き責任を負いません。</li>
+  </ul>
+
+  <h2>第4条（有料プランの料金と支払い）</h2>
+  <ul>
+    <li>有料プランの料金は月額780円（税込）です。</li>
+    <li>お支払い方法はクレジットカードです。初回はお申し込み時に、以降は契約期間の満了ごとに毎月自動でお支払いいただきます。</li>
+    <li>インターネット接続に必要な通信料は、ユーザーのご負担となります。</li>
+  </ul>
+
+  <h2>第5条（契約期間と自動更新）</h2>
+  <p>有料プランの契約期間は、お支払いの完了時から1ヶ月です。ユーザーが解約のお手続きをされない限り、契約は1ヶ月ごとに同じ条件で自動的に更新されます。</p>
+
+  <h2>第6条（解約）</h2>
+  <ul>
+    <li>ユーザーは、マイページの「解約する」ボタンから、いつでも解約のお手続きができます。運営者のメールアドレスへのご連絡でも承ります。</li>
+    <li>契約期間の満了日までに解約のお手続きをされた場合、次回以降のご請求は発生しません。</li>
+    <li>解約のお手続き後も、お支払い済みの契約期間の満了日まで本サービスをご利用いただけます。</li>
+  </ul>
+
+  <h2>第7条（返金）</h2>
+  <p>本サービスはデジタルコンテンツであるため、お支払い後の返金はいたしません。契約期間の途中で解約された場合も、日割りでの返金はございません。ただし、二重請求その他運営者の不備によるご請求については、全額を返金いたします。</p>
+
+  <h2>第8条（未成年の方のご利用）</h2>
+  <p>未成年の方が有料プランをお申し込みになる場合は、親権者など法定代理人の同意を得たうえでお申し込みください。</p>
+
+  <h2>第9条（禁止事項）</h2>
+  <p>ユーザーは、本サービスの利用にあたり、次の行為をしてはなりません。</p>
+  <ul>
+    <li>法令または公序良俗に違反する行為</li>
+    <li>他人のメールアドレスを使ってログインする行為、またはアカウントを第三者に利用させる行為</li>
+    <li>本サービスのサーバーやネットワークに過度な負荷をかける行為、自動化された手段で大量にアクセスする行為</li>
+    <li>本サービスの不具合を意図的に利用する行為、不正にアクセスしようとする行為</li>
+    <li>本サービスで生成された文章を、運営者の許可なく販売・再配布する行為</li>
+    <li>コミュニティ機能において、他人を誹謗中傷する内容、個人情報、わいせつな内容、宣伝・勧誘を目的とする内容を投稿する行為</li>
+    <li>その他、運営者が不適切と合理的に判断する行為</li>
+  </ul>
+
+  <h2>第10条（コミュニティへの投稿）</h2>
+  <p>ユーザーがコミュニティ機能に投稿した内容の責任は、投稿したユーザーが負います。運営者は、前条に該当すると判断した投稿を、事前の通知なく非表示または削除できるものとします。</p>
+
+  <h2>第11条（利用の停止）</h2>
+  <p>運営者は、ユーザーが本規約に違反した場合、事前の通知なく本サービスの利用を停止できるものとします。</p>
+
+  <h2>第12条（サービスの変更・中断・終了）</h2>
+  <ul>
+    <li>運営者は、システムの保守、障害、外部サービス（AI・インフラ・決済など）の停止その他やむを得ない事情がある場合、本サービスの全部または一部を一時的に中断することがあります。</li>
+    <li>運営者は、本サービスの内容を変更し、または本サービスを終了することがあります。有料プランを終了する場合は、終了日の30日前までに本サービス上で告知し、終了日以降のご請求は行いません。</li>
+  </ul>
+
+  <h2>第13条（免責・損害賠償の制限）</h2>
+  <ul>
+    <li>運営者は、本サービスの結果の正確性・有用性について保証しません。ユーザーが本サービスの結果に基づいて行った判断・行動の結果について、運営者は責任を負いません。</li>
+    <li>本サービスに関して運営者がユーザーに損害賠償責任を負う場合、その額は、損害が発生した月にユーザーが支払った有料プランの料金を上限とします。ただし、運営者に故意または重大な過失がある場合は、この限りではありません。</li>
+  </ul>
+
+  <h2>第14条（個人情報）</h2>
+  <p>運営者は、ユーザーの個人情報を<a href="/legal/privacy" style="color:var(--accent);">プライバシーポリシー</a>に従って取り扱います。</p>
+
+  <h2>第15条（規約の変更）</h2>
+  <p>運営者は、法令の改正やサービスの変更に応じて、本規約を変更することがあります。変更する場合は、変更後の内容と効力の発生日を、効力の発生日より前に本サービス上で告知します。ユーザーの不利益となる変更を行う場合は、効力の発生日の14日前までに告知します。</p>
+
+  <h2>第16条（準拠法・管轄）</h2>
+  <p>本規約は日本法に準拠します。本サービスに関して紛争が生じた場合は、運営者の住所地を管轄する地方裁判所を第一審の専属的合意管轄裁判所とします。</p>
+
+  <h2>お問い合わせ</h2>
   <p>Inverted.triangle.leef@gmail.com</p>
 
   <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>

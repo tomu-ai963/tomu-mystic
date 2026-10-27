@@ -1,12 +1,14 @@
 // ============================================
 // とむMYSTIC — stripe.js
-// サブスクリプション照会/登録・Stripe Checkout・Webhook（署名検証/冪等化）
+// サブスクリプション照会/登録・解約受付・Stripe Checkout・Webhook（署名検証/冪等化）
+// Stripe は占い系が禁止業種のため不採用。Checkout は Worker のルートから外してあり
+// （2026-10-27）、実装は決済サービス差し替え時の参考として残している。
 // ============================================
 
 import {
   jsonResponse, checkRateLimit, checkSubscription,
   isValidUserId, isValidPlan, isAllowedRedirectUrl,
-  hmacHex, timingSafeEqual,
+  hmacHex, timingSafeEqual, escapeHtml,
 } from "./shared.js";
 import { authenticate } from "./auth.js";
 
@@ -25,6 +27,10 @@ async function handleSubscriptionCheck(request, env) {
   return jsonResponse({ subscribed: isSubscribed });
 }
 
+// POST /subscription/register（X-Admin-Token 必須）
+// 決済完了の通知が無い決済サービスでは、これで手作業で有効化・更新する。
+// 解約受付済みのユーザーを月次更新のつもりで上書きすると、解約が黙って取り消され
+// 次回以降も請求され続ける。再契約として登録する場合のみ resubscribe: true で通す。
 async function handleSubscriptionRegister(request, env) {
   let parsed;
   try { parsed = await request.json(); } catch { return jsonResponse({ error: "Invalid input" }, 400); }
@@ -35,6 +41,13 @@ async function handleSubscriptionRegister(request, env) {
     return jsonResponse({ error: "Invalid plan" }, 400);
   }
   const { userId, plan } = parsed;
+  const existing = await getKvSubscription(env, userId);
+  if (existing.cancelRequested === true && parsed.resubscribe !== true) {
+    return jsonResponse({
+      error: "このユーザーは解約手続き済みです。再契約として登録する場合は resubscribe: true を指定してください",
+      cancelRequestedAt: existing.cancelRequestedAt || null,
+    }, 409);
+  }
   const expires = new Date();
   expires.setMonth(expires.getMonth() + 1);
   await env.MYSTIC_SUBSCRIPTIONS.put(userId, JSON.stringify({
@@ -43,7 +56,115 @@ async function handleSubscriptionRegister(request, env) {
     expires: expires.toISOString(),
     createdAt: new Date().toISOString(),
   }));
+  await env.MYSTIC_SUBSCRIPTIONS.delete(CANCEL_REQ_PREFIX + userId);
   return jsonResponse({ success: true });
+}
+
+// ============================================
+// 契約状態の照会・解約の受付（決済サービス非依存）
+// 解約は「受付」を記録するだけで、決済サービス側の継続課金の停止は運営者が行う
+// （通知・解約 API が無い決済サービスでも回せるようにするため）。
+//   <userId>             … cancelRequested / cancelRequestedAt を追記。expires までは利用可
+//   cancel_req:<userId>  … 受付日時。運営者の対応待ち一覧（`kv key list --prefix cancel_req:`）
+// 受付時は本人に受付メール、運営者に停止依頼メールを送る。メール失敗で受付は取り消さない。
+// ============================================
+
+const CANCEL_REQ_PREFIX = "cancel_req:";
+const OPERATOR_EMAIL = "Inverted.triangle.leef@gmail.com";
+
+// GET /subscription/status（Bearer認証必須）
+async function handleSubscriptionStatus(request, env) {
+  const userId = await authenticate(request, env);
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+  const subscribed = await checkSubscription(userId, env);
+  if (!subscribed) return jsonResponse({ subscribed: false, expires: null, cancelRequested: false });
+  const sub = await getKvSubscription(env, userId);
+  return jsonResponse({
+    subscribed: true,
+    expires: sub.expires || null,
+    cancelRequested: sub.cancelRequested === true,
+  });
+}
+
+// POST /subscription/cancel（Bearer認証必須）
+async function handleSubscriptionCancel(request, env) {
+  if (request.method !== "POST") return jsonResponse({ error: "Method Not Allowed" }, 405);
+  const userId = await authenticate(request, env);
+  if (!userId) return jsonResponse({ error: "認証が必要です" }, 401);
+  // レートリミット（メール送信を伴う: ユーザーあたり 5回/時）
+  if (!await checkRateLimit(env, "cancel", userId)) {
+    return jsonResponse({ error: "Too many requests" }, 429);
+  }
+  if (!await checkSubscription(userId, env)) {
+    return jsonResponse({ error: "有効なご契約がありません" }, 400);
+  }
+  const sub = await getKvSubscription(env, userId);
+  if (sub.cancelRequested === true) {
+    return jsonResponse({ success: true, alreadyRequested: true, expires: sub.expires || null });
+  }
+
+  const now = new Date().toISOString();
+  await env.MYSTIC_SUBSCRIPTIONS.put(userId, JSON.stringify({
+    ...sub,
+    cancelRequested: true,
+    cancelRequestedAt: now,
+  }));
+  await env.MYSTIC_SUBSCRIPTIONS.put(CANCEL_REQ_PREFIX + userId, now);
+
+  let email = "";
+  try { email = atob(userId); } catch { /* ignore */ }
+  const until = formatJstDateTime(sub.expires);
+  await Promise.allSettled([
+    email.includes("@") && sendPlainMail(env, email, "✦ とむMYSTIC 解約のお手続きを受け付けました", [
+      "とむMYSTIC をご利用いただきありがとうございました。",
+      `解約のお手続きを受け付けました（受付日時：${formatJstDateTime(now)}）。`,
+      until ? `${until} まで、引き続きすべての機能をご利用いただけます。` : "",
+      "次回以降のご請求は発生しません。",
+      "お心当たりのない場合は、このメールに記載のアドレスまでご連絡ください。",
+      `お問い合わせ：${OPERATOR_EMAIL}`,
+    ]),
+    sendPlainMail(env, OPERATOR_EMAIL, `[とむMYSTIC] 解約受付: ${email || userId}`, [
+      "解約の受付がありました。決済サービス側の継続課金を停止してください。",
+      `メールアドレス：${email || "（不明）"}`,
+      `userId：${userId}`,
+      `受付日時：${formatJstDateTime(now)}`,
+      `利用期限：${until || "（未設定）"}`,
+      "停止後は KV の cancel_req:<userId> を削除して対応済みにする。",
+    ]),
+  ]);
+
+  return jsonResponse({ success: true, expires: sub.expires || null });
+}
+
+// ISO8601 → 日本時間 "YYYY年M月D日 HH:MM"（不正値は空文字）
+function formatJstDateTime(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d.getTime())) return "";
+  const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+  const p = n => String(n).padStart(2, "0");
+  return `${jst.getUTCFullYear()}年${jst.getUTCMonth() + 1}月${jst.getUTCDate()}日 ${p(jst.getUTCHours())}:${p(jst.getUTCMinutes())}`;
+}
+
+async function sendPlainMail(env, to, subject, lines) {
+  if (!env.RESEND_API_KEY) {
+    console.error(`RESEND_API_KEY 未設定のためメールを送信できません: ${subject}`);
+    return;
+  }
+  const html = lines.filter(Boolean).map(l => `<p>${escapeHtml(l)}</p>`).join("");
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: "とむMYSTIC <noreply@tomu-ai.dev>",
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+  if (!res.ok) console.error(`Resend送信失敗 (${subject}): ${await res.text()}`);
 }
 
 // ============================================
@@ -288,4 +409,8 @@ async function verifyStripeSignature(payload, sigHeader, secret) {
   }
 }
 
-export { handleSubscriptionCheck, handleSubscriptionRegister, handleStripeCheckout, handleStripeWebhook };
+export {
+  handleSubscriptionCheck, handleSubscriptionRegister,
+  handleSubscriptionStatus, handleSubscriptionCancel,
+  handleStripeCheckout, handleStripeWebhook,
+};
