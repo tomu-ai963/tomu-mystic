@@ -65,11 +65,42 @@ npx wrangler secret list
 | `ANTHROPIC_API_KEY` | Claude API（占い生成・Vision） |
 | `AUTH_SECRET` | マジックリンク署名 |
 | `RESEND_API_KEY` | メール送信（Resend） |
-| `STRIPE_SECRET_KEY` | Stripe API |
-| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook 署名検証 |
-| `MYSTIC_PRICE_ID` | Stripe 価格ID |
 | `MCP_TOKEN` | MCP エンドポイント認証 |
-| `ADMIN_TOKEN` | 管理系エンドポイント認証 |
+| `ADMIN_TOKEN` | 管理系エンドポイント認証（`/subscription/register`） |
+
+> **Stripe は不採用**（占い系が禁止業種）。`STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` /
+> `MYSTIC_PRICE_ID` は不要で、`/stripe/checkout` はルートごと閉じてある（503）。
+> 2026-10-27 時点で本番にはこの3つが残っているので、ダッシュボードから削除する
+> （`wrangler secret delete` は deny 設定のため）。`stripe.js` の Checkout / Webhook 実装は
+> 決済サービス差し替え時の参考として残している。
+
+## 有料プランの契約・解約（決済サービス非依存）
+
+決済サービスは選定中（JStyleCredit / UnivaPay）。決済完了の通知が無いサービスでも回せるよう、
+契約の有効化と解約は次の形にしてある。
+
+| エンドポイント | 用途 |
+|---|---|
+| `POST /subscription/register`（`X-Admin-Token`） | 手作業での有効化・月次更新（`expires` = 今から1ヶ月） |
+| `GET /subscription/status`（Bearer） | マイページ表示用（`subscribed` / `expires` / `cancelRequested`） |
+| `POST /subscription/cancel`（Bearer） | マイページの「解約する」。受付のみで、`expires` までは利用可 |
+
+解約を受け付けると、KV の `<userId>` に `cancelRequested: true` が付き、`cancel_req:<userId>` に
+受付日時が入る。本人に受付メール、運営者（Inverted.triangle.leef@gmail.com）に停止依頼メールが届く。
+
+**運営者の対応**: 決済サービス側の継続課金を止めてから、`cancel_req:<userId>` を削除する。
+対応待ちの一覧は `npx wrangler kv key list --binding=MYSTIC_SUBSCRIPTIONS --prefix cancel_req: --remote`。
+画面とメールで「次回以降のご請求は発生しません」と約束しているので、更新日までに必ず止めること。
+
+解約済みのユーザーを `/subscription/register` で更新しようとすると 409 で止まる（月次更新の
+つもりで解約を黙って取り消さないため）。再契約として登録するときだけ `"resubscribe": true` を付ける。
+
+料金・自動更新・解約・返金の文言は、利用規約（`/legal/terms`）・特商法表記（`/legal/tokushoho`）・
+申込前の確認画面（`mystic-login.js` の `renderConfirmStep`）の3か所にある。変えるときは3か所そろえる。
+
+```bash
+npm run test:subscription   # Checkout 閉鎖・法務ページ・照会/解約/登録ガードの動作確認（外部 API を叩かない）
+```
 
 バインディング（KV `MYSTIC_SUBSCRIPTIONS` / D1 `MYSTIC_DB` / Queue `MAIL_QUEUE`）は
 `wrangler.toml` に定義済みで、デプロイのたびに同内容が適用される。

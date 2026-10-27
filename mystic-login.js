@@ -6,6 +6,8 @@
 // ============================================
 
 const WORKER_URL = "https://tomu-mystic-worker.inverted-triangle-leef.workers.dev";
+const TERMS_URL = `${WORKER_URL}/legal/terms`;
+const TOKUSHOHO_URL = `${WORKER_URL}/legal/tokushoho`;
 
 // 旧Service Workerの自己修復。
 // 過去の sw.js は外部Worker APIへのクロスオリジン呼び出しをインターセプトしており、
@@ -126,6 +128,35 @@ const MysticAuth = {
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.url) throw new Error(data.error || "決済ページの取得に失敗しました");
     location.href = data.url;
+  },
+
+  // 契約状態（有効期限・解約受付の有無）を取得
+  async getSubscriptionStatus() {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/subscription/status`, { headers: this.authHeaders() });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "ご契約状況の取得に失敗しました");
+    return data;
+  },
+
+  // 解約を申し込む（契約期間の満了日までは引き続き利用できる）
+  async cancelSubscription() {
+    if (!this.isLoggedIn()) throw new Error("ログインが必要です");
+    const res = await fetch(`${WORKER_URL}/subscription/cancel`, {
+      method: "POST",
+      headers: this.authHeaders(),
+    });
+    if (res.status === 401) {
+      this.logout();
+      throw new Error("セッションの有効期限が切れました。再度ログインしてください。");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "解約のお手続きに失敗しました");
+    return data;
   },
 
   // 毎朝の占いメール設定を取得
@@ -309,7 +340,9 @@ function showMagicLinkSent(email) {
 }
 
 // ============================================
-// サブスクリプションUI（Stripe連携）
+// サブスクリプションUI（プラン案内 → 申込内容の最終確認）
+// 最終確認の表示項目は特商法の最終確認画面の要件（分量・価格・支払時期と方法・
+// 提供時期・解約）に合わせている。利用規約・特商法表記と内容をそろえること。
 // ============================================
 
 function renderSubscriptionModal() {
@@ -319,33 +352,80 @@ function renderSubscriptionModal() {
   modal.id = "mystic-sub-modal";
   modal.innerHTML = `
     <div class="mystic-modal-overlay">
-      <div class="mystic-modal-box">
-        <div class="mystic-modal-star">☽</div>
-        <h2 class="mystic-modal-title">サブスクリプション</h2>
-        <p class="mystic-modal-subtitle">月額 ¥780 で全30種のAI占い・自己分析アプリにフルアクセス</p>
-        <ul class="mystic-plan-list">
-          <li>✦ 星読み・タロット・数秘術のAI分析</li>
-          <li>✦ 守護星・相性のAIパターン分析</li>
-          <li>✦ 前世テーマ・夢のAI解読</li>
-          <li>✦ 月相ジャーナル・宇宙からのメッセージ</li>
-          <li>✦ 手相占い（画像AI解析）</li>
-        </ul>
-        <div class="mystic-price-badge">月額 ¥780（税込）</div>
-        <button id="mystic-subscribe-btn" class="mystic-modal-btn">
-          準備中 ✦
-        </button>
-        <p id="mystic-sub-error" class="mystic-modal-error"></p>
-        <p class="mystic-modal-note">※本サービスは統計的パターンとAIによる自己分析コンテンツです</p>
-        <p class="mystic-modal-note">Stripeの安全な決済ページへ移動します</p>
-      </div>
+      <div class="mystic-modal-box"></div>
     </div>
   `;
   document.body.appendChild(modal);
+  renderPlanStep();
+}
 
-  // 決済サービス選定中（Stripeはスピリチュアル系禁止のため不採用）。checkoutは呼ばない
-  document.getElementById("mystic-subscribe-btn").addEventListener("click", () => {
+function renderPlanStep() {
+  const box = document.querySelector("#mystic-sub-modal .mystic-modal-box");
+  if (!box) return;
+  box.innerHTML = `
+    <div class="mystic-modal-star">☽</div>
+    <h2 class="mystic-modal-title">サブスクリプション</h2>
+    <p class="mystic-modal-subtitle">月額 ¥780 で全30種のAI占い・自己分析アプリにフルアクセス</p>
+    <ul class="mystic-plan-list">
+      <li>✦ 星読み・タロット・数秘術のAI分析</li>
+      <li>✦ 守護星・相性のAIパターン分析</li>
+      <li>✦ 前世テーマ・夢のAI解読</li>
+      <li>✦ 月相ジャーナル・宇宙からのメッセージ</li>
+      <li>✦ 手相占い（画像AI解析）</li>
+    </ul>
+    <div class="mystic-price-badge">月額 ¥780（税込）</div>
+    <button id="mystic-to-confirm-btn" class="mystic-modal-btn">
+      お申し込み内容を確認する
+    </button>
+    <p class="mystic-modal-note">※本サービスは統計的パターンとAIによる自己分析コンテンツです</p>
+  `;
+  document.getElementById("mystic-to-confirm-btn").addEventListener("click", renderConfirmStep);
+}
+
+function renderConfirmStep() {
+  const box = document.querySelector("#mystic-sub-modal .mystic-modal-box");
+  if (!box) return;
+  box.innerHTML = `
+    <h2 class="mystic-modal-title">お申し込み内容の確認</h2>
+    <p class="mystic-modal-subtitle">以下の内容をご確認のうえ、お申し込みください。</p>
+    <dl class="mystic-confirm-list">
+      <dt>サービス</dt>
+      <dd>とむMYSTIC 月額プラン（全30種のAI占い・自己分析アプリ）</dd>
+      <dt>料金</dt>
+      <dd>月額 780円（税込）</dd>
+      <dt>契約期間</dt>
+      <dd>1ヶ月。解約のお手続きをされるまで、1ヶ月ごとに自動で更新されます</dd>
+      <dt>お支払い時期</dt>
+      <dd>初回はお申し込み時。以降は契約期間の満了ごとに、毎月自動でお支払いいただきます</dd>
+      <dt>お支払い方法</dt>
+      <dd>クレジットカード</dd>
+      <dt>ご利用開始</dt>
+      <dd>決済完了後すぐ</dd>
+      <dt>解約</dt>
+      <dd>マイページの「解約する」からいつでもお手続きいただけます。契約期間の満了日までにお手続きいただければ、次回以降のご請求は発生しません。解約後も満了日まではご利用いただけます</dd>
+      <dt>返金</dt>
+      <dd>お支払い後の返金、および契約期間途中の解約による日割り返金はございません</dd>
+    </dl>
+    <label class="mystic-confirm-agree">
+      <input type="checkbox" id="mystic-agree-check" />
+      <span><a href="${TERMS_URL}" target="_blank" rel="noopener">利用規約</a>と<a href="${TOKUSHOHO_URL}" target="_blank" rel="noopener">特定商取引法に基づく表記</a>を確認し、同意します</span>
+    </label>
+    <button id="mystic-subscribe-btn" class="mystic-modal-btn" disabled>
+      準備中 ✦
+    </button>
+    <p id="mystic-sub-error" class="mystic-modal-error"></p>
+    <button id="mystic-confirm-back-btn" class="mystic-modal-link-btn">← 戻る</button>
+  `;
+
+  const agree = document.getElementById("mystic-agree-check");
+  const btn = document.getElementById("mystic-subscribe-btn");
+  agree.addEventListener("change", () => { btn.disabled = !agree.checked; });
+  // 決済サービス選定中（Stripeはスピリチュアル系禁止のため不採用）。決済ページへは遷移しない。
+  // 決済サービスが決まったら、ここで決済ページへ遷移させてボタン文言を「上記に同意して申し込む」にする
+  btn.addEventListener("click", () => {
     showToast("有料プランは現在準備中です。もうしばらくお待ちください。");
   });
+  document.getElementById("mystic-confirm-back-btn").addEventListener("click", renderPlanStep);
 }
 
 // ============================================

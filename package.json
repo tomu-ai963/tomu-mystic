@@ -10,6 +10,7 @@
     "dev:free": "wrangler dev -c free/wrangler.free.toml",
     "check:free-fidelity": "node tools/check-free-fidelity.mjs",
     "scan:unresolved-refs:free": "node tools/scan-unresolved-refs.mjs free/wrangler.free.toml",
-    "test:free": "node tools/test-free-worker.mjs"
+    "test:free": "node tools/test-free-worker.mjs",
+    "test:subscription": "node tools/test-subscription.mjs"
   }
 }
