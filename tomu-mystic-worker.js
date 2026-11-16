@@ -951,7 +951,7 @@ ${MYSTIC_LEGAL_STYLE}
 ${MYSTIC_LEGAL_NAV}
 <main>
   <h1>✦ 特定商取引法に基づく表記</h1>
-  <p class="effective-date">最終改定日：2026年10月27日</p>
+  <p class="effective-date">最終改定日：2026年11月16日</p>
   <table>
     <tr>
       <th>販売事業者</th>
@@ -967,7 +967,7 @@ ${MYSTIC_LEGAL_NAV}
     </tr>
     <tr>
       <th>メールアドレス</th>
-      <td>Inverted.triangle.leef@gmail.com</td>
+      <td>info@tomu-ai.dev</td>
     </tr>
     <tr>
       <th>サービス名</th>
@@ -1037,7 +1037,7 @@ ${MYSTIC_LEGAL_STYLE}
 ${MYSTIC_LEGAL_NAV}
 <main>
   <h1>✦ プライバシーポリシー</h1>
-  <p class="effective-date">制定日：2026年1月1日<br/>最終改定日：2026年10月27日</p>
+  <p class="effective-date">制定日：2026年1月1日<br/>最終改定日：2026年11月16日</p>
 
   <p>とむMYSTIC（以下「本サービス」）は、ユーザーの個人情報の取り扱いについて以下のとおり定めます。</p>
 
@@ -1108,7 +1108,7 @@ ${MYSTIC_LEGAL_NAV}
 
   <h2>8. お問い合わせ</h2>
   <p>個人情報の取り扱いに関するお問い合わせ、および前項のご請求は、下記メールアドレスまでご連絡ください。</p>
-  <p>Inverted.triangle.leef@gmail.com</p>
+  <p>info@tomu-ai.dev</p>
 
   <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
 </main>
@@ -1214,7 +1214,7 @@ ${MYSTIC_LEGAL_NAV}
   <p>本規約は日本法に準拠します。本サービスに関して紛争が生じた場合は、運営者の住所地を管轄する地方裁判所を第一審の専属的合意管轄裁判所とします。</p>
 
   <h2>お問い合わせ</h2>
-  <p>Inverted.triangle.leef@gmail.com</p>
+  <p>info@tomu-ai.dev</p>
 
   <a href="https://tomu-ai963.github.io/tomu-mystic/" class="back-link">← トップページに戻る</a>
 </main>
