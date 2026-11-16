@@ -6,8 +6,9 @@
 // ============================================
 
 const WORKER_URL = "https://tomu-mystic-worker.inverted-triangle-leef.workers.dev";
-const TERMS_URL = `${WORKER_URL}/legal/terms`;
-const TOKUSHOHO_URL = `${WORKER_URL}/legal/tokushoho`;
+const LEGAL_ORIGIN = "https://mystic.tomu-ai.dev";
+const TERMS_URL = `${LEGAL_ORIGIN}/legal/terms`;
+const TOKUSHOHO_URL = `${LEGAL_ORIGIN}/legal/tokushoho`;
 
 // 旧Service Workerの自己修復。
 // 過去の sw.js は外部Worker APIへのクロスオリジン呼び出しをインターセプトしており、

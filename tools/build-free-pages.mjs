@@ -33,7 +33,7 @@ const OUT = join(ROOT, "free", "apps");
 const EXCLUDED = new Set(["palm-reading"]);
 
 // プライバシーポリシーは有料版 Worker が配信している（無料版 Worker は API 専用）。
-const PRIVACY_URL = "https://tomu-mystic-worker.inverted-triangle-leef.workers.dev/legal/privacy";
+const PRIVACY_URL = "https://mystic.tomu-ai.dev/legal/privacy";
 
 // 無料版は登録不要でも匿名IDとIPハッシュを扱うので、どのページからでも
 // ポリシーに到達できる必要がある。有料版の apps/*.html はフッターを持たず

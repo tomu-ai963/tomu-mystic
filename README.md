@@ -7,7 +7,9 @@ Worker はモジュール分割されており、`tomu-mystic-worker.js`（エ�
 を import し、デプロイ時に wrangler 内蔵の esbuild が1ファイルにバンドルする。
 占いのプロンプト定義は `readings-data.js` の READINGS テーブルが唯一の定義源（MCPも参照）。
 
-- Worker: `https://tomu-mystic-worker.inverted-triangle-leef.workers.dev`
+- Worker: `https://tomu-mystic-worker.inverted-triangle-leef.workers.dev`（API・フロントの呼び出し先）
+- 法務ページ: `https://mystic.tomu-ai.dev/legal/{terms,tokushoho,privacy}`（同じ Worker のカスタムドメイン。
+  フロントの法務リンクはここを指す。API の呼び出し先は workers.dev のまま）
 - 構成の詳細（KV / D1 スキーマ）は `tomu-mystic-worker.js` 冒頭のコメントを参照
 
 ## 未解決参照スキャン（モジュール分割時は必ず実行）

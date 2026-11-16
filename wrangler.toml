@@ -5,6 +5,12 @@ compatibility_date = "2024-01-01"
 # wrangler 内蔵の esbuild でバンドルする（no_bundle は 2026-07 に廃止）
 account_id = "b6815ad2ee3097cc0f9e79b8536776b9"
 
+# 法務ページ（/legal/*）を自分のドメインで公開するためのカスタムドメイン。
+# workers.dev も有効のまま（フロントの API 呼び出し先はまだ workers.dev）。
+routes = [
+  { pattern = "mystic.tomu-ai.dev", custom_domain = true }
+]
+
 [[kv_namespaces]]
 binding = "MYSTIC_SUBSCRIPTIONS"
 id = "5e1c00cba16d46119b2123dc4dd23322"
