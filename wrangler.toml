@@ -10,6 +10,9 @@ account_id = "b6815ad2ee3097cc0f9e79b8536776b9"
 routes = [
   { pattern = "mystic.tomu-ai.dev", custom_domain = true }
 ]
+# routes を書くと wrangler は workers.dev を既定で無効にする。API の呼び出し先が
+# workers.dev のままなので明示的に有効を維持する（preview_urls は従来どおり既定に任せる）。
+workers_dev = true
 
 [[kv_namespaces]]
 binding = "MYSTIC_SUBSCRIPTIONS"
